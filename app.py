@@ -94,7 +94,7 @@ with st.sidebar:
 st.title("📦 Gestão de Pedidos")
 
 # --- CRIAÇÃO DAS ABAS ---
-tab_pedidos, tab_historico, tab_clientes = st.tabs(["📝 Novo Pedido", "📊 Gerenciar Pedidos (CRUD)", "➕ Cadastrar Clientes"])
+tab_pedidos, tab_historico, tab_clientes = st.tabs(["📝 Novo Pedido", "📊 Gerenciar Pedidos", "➕ Cadastrar Clientes"])
 
 # ==================================================
 # ABA 1: NOVO PEDIDO
@@ -219,4 +219,5 @@ hide_st_style = """
             </style>
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
+
 
