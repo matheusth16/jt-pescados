@@ -207,12 +207,16 @@ with tab_clientes:
                 except Exception as e:
 
                     st.error(f"Erro ao cadastrar: {e}")
-# --- REMOVER "MADE WITH STREAMLIT" ---
+# --- REMOVER TOTALMENTE O "CREATED BY" E MENUS (PC E CELULAR) ---
 hide_st_style = """
             <style>
             #MainMenu {visibility: hidden;}
             footer {visibility: hidden;}
             header {visibility: hidden;}
+            /* Esconde o menu de opções no mobile */
+            .stAppDeployButton {display:none;}
+            [data-testid="stStatusWidget"] {display:none;}
             </style>
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
+
