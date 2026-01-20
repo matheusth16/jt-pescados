@@ -205,4 +205,14 @@ with tab_clientes:
                     time.sleep(1)
                     st.rerun()
                 except Exception as e:
+
                     st.error(f"Erro ao cadastrar: {e}")
+# --- REMOVER "MADE WITH STREAMLIT" ---
+hide_st_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            </style>
+            """
+st.markdown(hide_st_style, unsafe_allow_html=True)
