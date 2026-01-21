@@ -112,8 +112,8 @@ def criar_novo_cliente(nome, cidade):
     sh = get_connection()
     ws = sh.worksheet("BaseClientes")
     
+    # 1. Lógica de ID (igual a antes)
     coluna_ids = ws.col_values(1)
-    # Lógica segura para ID
     ids_ocupados = set()
     for x in coluna_ids:
         if x.isdigit():
@@ -123,7 +123,29 @@ def criar_novo_cliente(nome, cidade):
     while novo_id in ids_ocupados:
         novo_id += 1
     
+    # 2. Adiciona o cliente (igual a antes)
     ws.append_row([novo_id, nome.upper(), cidade.upper()])
+    
+    # 3. NOVO: Comando para ordenar a planilha de A-Z
+    # Isso envia um comando direto para a API do Google Sheets
+    sh.batch_update({
+        "requests": [
+            {
+                "sortRange": {
+                    "range": {
+                        "sheetId": ws.id, # ID interno da aba
+                        "startRowIndex": 1, # Começa da linha 2 (pula o cabeçalho)
+                    },
+                    "sortSpecs": [
+                        {
+                            "dimensionIndex": 1, # Ordenar pela Coluna B (Índice 1)
+                            "sortOrder": "ASCENDING" # Ordem Crescente (A-Z)
+                        }
+                    ]
+                }
+            }
+        ]
+    })
 
 def get_metricas():
     sh = get_connection()
