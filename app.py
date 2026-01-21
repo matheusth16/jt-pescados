@@ -1,10 +1,9 @@
 import streamlit as st
-import gspread
-import pandas as pd
-from datetime import datetime
-from oauth2client.service_account import ServiceAccountCredentials
-import os
 import time
+from datetime import datetime
+# Importando nossos novos módulos
+import services.database as db
+import ui.styles as styles
 
 # 1. Configuração da Página
 st.set_page_config(
@@ -14,74 +13,21 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- ESTILO PERSONALIZADO (BRANDING JT PESCADOS) ---
-st.markdown("""
-<style>
-    .stButton>button {
-        width: 100%;
-        border-radius: 8px;
-        background-color: #B22222;
-        color: white;
-        border: none;
-    }
-    .stButton>button:hover {
-        background-color: #8B0000;
-        color: white;
-    }
-    [data-testid="stMetric"] {
-        background-color: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        padding: 15px;
-        border-radius: 10px;
-        border-left: 5px solid #FFD700;
-    }
-</style>
-""", unsafe_allow_html=True)
+# 2. Carregar Estilos
+styles.aplicar_estilos()
 
-# --- CONEXÃO INTELIGENTE (LOCAL OU NUVEM) ---
-@st.cache_resource
-def conectar_google_sheets():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    KEY = "1IenRiZI1TeqCFk4oB-r2WrqGsk0muUACsQA-kkvP4tc"
-    
-    try:
-        # Tenta carregar localmente primeiro
-        if os.path.exists("credentials.json"):
-            gc = gspread.service_account(filename="credentials.json")
-        else:
-            # Se não existir arquivo, tenta ler dos Secrets (Streamlit Cloud)
-            creds_dict = st.secrets["gcp_service_account"]
-            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-            gc = gspread.authorize(creds)
-        
-        return gc.open_by_key(KEY)
-    except Exception as e:
-        st.error(f"Erro de Conexão: {e}")
-        return None
-
-sh = conectar_google_sheets()
-
-if not sh:
-    st.stop()
-
-ws_pedidos = sh.sheet1 
-ws_clientes = sh.worksheet("BaseClientes")
-
-# --- BARRA LATERAL COM LOGO ---
+# 3. Sidebar e Métricas
 with st.sidebar:
     try:
-        st.image("imagem da empresa.jpg", use_container_width=True)
+        # Tenta carregar da pasta assets se existir, ou url, ou fallback
+        st.image("assets/imagem_empresa.jpg", use_container_width=True)
     except:
         st.image("https://cdn-icons-png.flaticon.com/512/3063/3063822.png", width=100)
 
     st.markdown("---")
     
-    try:
-        total_clientes = len(ws_clientes.col_values(1)) - 1
-        total_pedidos = len(ws_pedidos.col_values(1)) - 1
-    except:
-        total_clientes = 0
-        total_pedidos = 0
+    # Chamada ao Backend apenas para pegar números
+    total_clientes, total_pedidos = db.get_metricas()
         
     c1, c2 = st.columns(2)
     c1.metric("Clientes", total_clientes)
@@ -90,22 +36,14 @@ with st.sidebar:
     st.markdown("---")
     st.info("Sistema de Gestão\n**JT Pescados**")
 
-# --- TÍTULO PRINCIPAL ---
+# --- CORPO PRINCIPAL ---
 st.title("📦 Gestão de Pedidos")
-
-# --- CRIAÇÃO DAS ABAS ---
 tab_pedidos, tab_historico, tab_clientes = st.tabs(["📝 Novo Pedido", "📊 Gerenciar Pedidos", "➕ Cadastrar Clientes"])
 
-# ==================================================
-# ABA 1: NOVO PEDIDO
-# ==================================================
+# --- ABA 1: NOVO PEDIDO ---
 with tab_pedidos:
     st.subheader("Lançamento de Pedido")
-    
-    try:
-        lista_nomes = sorted(list(set(ws_clientes.col_values(2)[1:])))
-    except:
-        lista_nomes = []
+    lista_nomes = db.listar_clientes() # Backend
 
     with st.form(key="form_pedido", clear_on_submit=True):
         col1, col2 = st.columns(2)
@@ -117,107 +55,63 @@ with tab_pedidos:
         with col2:
             dia_entrega = st.date_input("Data de Entrega:", value=datetime.today())
 
-        pedido = st.text_area("Descrição Detalhada do Pedido:", height=150)
+        pedido = st.text_area("Descrição Detalhada:", height=150)
         botao_enviar = st.form_submit_button("💾 Salvar Pedido")
 
         if botao_enviar:
             if not pedido:
-                st.warning("O campo de pedido não pode estar vazio.")
+                st.warning("Preencha a descrição do pedido.")
             else:
                 try:
-                    proxima_linha = len(ws_pedidos.col_values(1)) + 1
-                    nova_linha = [
-                        datetime.now().strftime("%d/%m/%Y %H:%M:%S"), 
-                        nome_cliente,
-                        pedido, 
-                        dia_entrega.strftime("%d/%m/%Y")
-                    ]
-                    ws_pedidos.insert_row(nova_linha, index=proxima_linha)
-                    st.success(f"✅ Pedido salvo!")
+                    # Backend faz o trabalho sujo
+                    db.salvar_pedido(nome_cliente, pedido, dia_entrega)
+                    st.success("✅ Pedido salvo com sucesso!")
                     time.sleep(1)
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Erro ao salvar: {e}")
+                    st.error(f"Erro: {e}")
 
-# ==================================================
-# ABA 2: GERENCIAMENTO (CRUD COMPLETO)
-# ==================================================
+# --- ABA 2: GERENCIAMENTO ---
 with tab_historico:
-    st.subheader("Gerenciamento de Dados")
-    st.caption("Clique nas células para editar ou selecione a linha e aperte 'Del' para excluir.")
+    st.subheader("Base de Dados Completa")
     
-    try:
-        dados = ws_pedidos.get_all_values()
-        if len(dados) > 1:
-            df = pd.DataFrame(dados[1:], columns=dados[0])
-            
-            df_editado = st.data_editor(
-                df, 
-                num_rows="dynamic", 
-                use_container_width=True,
-                key="editor_pedidos",
-                height=500
-            )
-            
-            if st.button("💾 Salvar Alterações na Nuvem", type="primary"):
-                try:
-                    ws_pedidos.clear()
-                    novos_dados = [df_editado.columns.tolist()] + df_editado.values.tolist()
-                    ws_pedidos.update(range_name="A1", values=novos_dados)
-                    st.success("✅ Banco de dados atualizado!")
-                    st.balloons()
-                    time.sleep(1)
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro ao atualizar: {e}")
-        else:
-            st.info("Nenhum pedido registrado.")
-    except Exception as e:
-        st.error(f"Erro ao carregar dados: {e}")
+    df = db.buscar_todos_pedidos() # Backend
+    
+    if not df.empty:
+        df_editado = st.data_editor(
+            df, 
+            num_rows="dynamic", 
+            use_container_width=True,
+            key="editor_pedidos",
+            height=500
+        )
+        
+        if st.button("💾 Salvar Alterações na Nuvem", type="primary"):
+            try:
+                db.atualizar_banco_completo(df_editado) # Backend
+                st.success("✅ Banco atualizado!")
+                time.sleep(1)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao atualizar: {e}")
+    else:
+        st.info("Nenhum pedido encontrado.")
 
-# ==================================================
-# ABA 3: CADASTRO DE CLIENTES
-# ==================================================
+# --- ABA 3: CLIENTES ---
 with tab_clientes:
-    st.subheader("Cadastro de Novos Parceiros")
+    st.subheader("Cadastro de Parceiros")
     
     with st.form(key="form_novo_cliente", clear_on_submit=True):
         c1, c2 = st.columns([2, 1])
-        with c1:
-            novo_nome = st.text_input("Nome do Cliente / Empresa")
-        with c2:
-            nova_cidade = st.text_input("Cidade", value="SÃO CARLOS")
+        with c1: novo_nome = st.text_input("Nome do Cliente / Empresa")
+        with c2: nova_cidade = st.text_input("Cidade", value="SÃO CARLOS")
             
-        btn_cadastrar = st.form_submit_button("Salvar Novo Cliente")
-        
-        if btn_cadastrar:
+        if st.form_submit_button("Salvar Novo Cliente"):
             if novo_nome:
                 try:
-                    coluna_ids = ws_clientes.col_values(1)[1:]
-                    ids_ocupados = {int(x) for x in coluna_ids if x.isdigit()}
-                    novo_id = 1
-                    while novo_id in ids_ocupados:
-                        novo_id += 1
-                    
-                    ws_clientes.append_row([novo_id, novo_nome.upper(), nova_cidade.upper()])
-                    st.success(f"✅ Cliente cadastrado!")
-                    st.toast("Atualizando lista...", icon="🔄")
+                    db.criar_novo_cliente(novo_nome, nova_cidade) # Backend
+                    st.success("✅ Cliente cadastrado!")
                     time.sleep(1)
                     st.rerun()
                 except Exception as e:
-
-                    st.error(f"Erro ao cadastrar: {e}")
-# --- REMOVER TOTALMENTE O "CREATED BY" E MENUS (PC E CELULAR) ---
-hide_st_style = """
-            <style>
-            #MainMenu {visibility: hidden;}
-            footer {visibility: hidden;}
-            header {visibility: hidden;}
-            /* Esconde o menu de opções no mobile */
-            .stAppDeployButton {display:none;}
-            [data-testid="stStatusWidget"] {display:none;}
-            </style>
-            """
-st.markdown(hide_st_style, unsafe_allow_html=True)
-
-
+                    st.error(f"Erro: {e}")
