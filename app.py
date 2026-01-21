@@ -57,13 +57,23 @@ with tab_pedidos:
             if not lista_nomes:
                 nome_cliente = st.text_input("Nome do Cliente (Avulso):")
             else:
-                nome_cliente = st.selectbox("Selecione o Cliente:", options=lista_nomes)
+                # --- LÓGICA DE PADRÃO "VENDA A CONSUMIDOR" ---
+                # Tenta achar a posição do "VENDA A CONSUMIDOR" na lista
+                try:
+                    index_padrao = lista_nomes.index("VENDA A CONSUMIDOR")
+                except ValueError:
+                    index_padrao = 0 # Se não achar, pega o primeiro da lista (segurança)
+                
+                nome_cliente = st.selectbox(
+                    "Selecione o Cliente:", 
+                    options=lista_nomes,
+                    index=index_padrao # Aplica o índice encontrado
+                )
         
         with col2:
             dia_entrega = st.date_input("Data de Entrega:", value=datetime.today())
             
         with col3:
-            # AGORA SIM: Lista Completa de Opções
             status_inicial = st.selectbox(
                 "Status Inicial:", 
                 options=[
@@ -75,7 +85,7 @@ with tab_pedidos:
                     "ORÇAMENTO", 
                     "RESERVADO"
                 ],
-                index=0 # "GERADO" continua como sugestão inicial
+                index=0 
             )
 
         pedido = st.text_area("Descrição Detalhada:", height=150)
@@ -86,7 +96,6 @@ with tab_pedidos:
                 st.warning("Preencha a descrição do pedido.")
             else:
                 try:
-                    # Envia o status escolhido para o banco
                     db.salvar_pedido(nome_cliente, pedido, dia_entrega, status_inicial)
                     st.success(f"✅ Pedido salvo com status '{status_inicial}'!")
                     time.sleep(1)
@@ -101,7 +110,6 @@ with tab_historico:
     df = db.buscar_pedidos_visualizacao() 
     
     if not df.empty:
-        # Limpeza para garantir que acha a coluna
         df.columns = [c.strip() for c in df.columns]
         coluna_status_nome = next((c for c in df.columns if c.upper() == "STATUS"), None)
 
