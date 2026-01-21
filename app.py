@@ -43,7 +43,7 @@ with st.sidebar:
 
 # --- CORPO PRINCIPAL ---
 st.title("📦 Gestão de Pedidos")
-tab_pedidos, tab_historico, tab_clientes = st.tabs(["📝 Novo Pedido", "📊 Gerenciar Status", "➕ Cadastrar Clientes"])
+tab_pedidos, tab_historico, tab_clientes = st.tabs(["📝 Novo Pedido", "📊 Gerenciar Pedidos", "➕ Cadastrar Clientes"])
 
 # --- ABA 1: NOVO PEDIDO ---
 with tab_pedidos:
@@ -51,40 +51,35 @@ with tab_pedidos:
     lista_nomes = db.listar_clientes() 
 
     with st.form(key="form_pedido", clear_on_submit=True):
-        col1, col2, col3 = st.columns([2, 1, 1]) 
-        
-        with col1:
+        # Layout: Linha 1 (Cliente e Data) | Linha 2 (Pagamento e Status)
+        c1, c2 = st.columns([2, 1])
+        with c1:
             if not lista_nomes:
                 nome_cliente = st.text_input("Nome do Cliente (Avulso):")
             else:
-                # --- LÓGICA DE PADRÃO "VENDA A CONSUMIDOR" ---
-                # Tenta achar a posição do "VENDA A CONSUMIDOR" na lista
                 try:
                     index_padrao = lista_nomes.index("VENDA A CONSUMIDOR")
                 except ValueError:
-                    index_padrao = 0 # Se não achar, pega o primeiro da lista (segurança)
+                    index_padrao = 0
                 
-                nome_cliente = st.selectbox(
-                    "Selecione o Cliente:", 
-                    options=lista_nomes,
-                    index=index_padrao # Aplica o índice encontrado
-                )
+                nome_cliente = st.selectbox("Selecione o Cliente:", options=lista_nomes, index=index_padrao)
         
-        with col2:
+        with c2:
             dia_entrega = st.date_input("Data de Entrega:", value=datetime.today())
-            
-        with col3:
+
+        c3, c4 = st.columns(2)
+        with c3:
+            # NOVO: Campo de Pagamento
+            pagamento_inicial = st.selectbox(
+                "Forma de Pagamento:",
+                options=["A COMBINAR", "PIX", "BOLETO", "CARTÃO"],
+                index=0
+            )
+        
+        with c4:
             status_inicial = st.selectbox(
                 "Status Inicial:", 
-                options=[
-                    "GERADO", 
-                    "PENDENTE", 
-                    "NÃO GERADO", 
-                    "CANCELADO", 
-                    "ENTREGUE", 
-                    "ORÇAMENTO", 
-                    "RESERVADO"
-                ],
+                options=["GERADO", "PENDENTE", "NÃO GERADO", "CANCELADO", "ENTREGUE", "ORÇAMENTO", "RESERVADO"],
                 index=0 
             )
 
@@ -96,8 +91,9 @@ with tab_pedidos:
                 st.warning("Preencha a descrição do pedido.")
             else:
                 try:
-                    db.salvar_pedido(nome_cliente, pedido, dia_entrega, status_inicial)
-                    st.success(f"✅ Pedido salvo com status '{status_inicial}'!")
+                    # Envia os 5 dados agora (incluindo pagamento)
+                    db.salvar_pedido(nome_cliente, pedido, dia_entrega, pagamento_inicial, status_inicial)
+                    st.success(f"✅ Pedido Salvo! (Status: {status_inicial} | Pagto: {pagamento_inicial})")
                     time.sleep(1)
                     st.rerun()
                 except Exception as e:
@@ -105,27 +101,34 @@ with tab_pedidos:
 
 # --- ABA 2: GERENCIAMENTO ---
 with tab_historico:
-    st.subheader("Painel de Controle de Status")
+    st.subheader("Painel de Controle")
     
     df = db.buscar_pedidos_visualizacao() 
     
     if not df.empty:
-        df.columns = [c.strip() for c in df.columns]
-        coluna_status_nome = next((c for c in df.columns if c.upper() == "STATUS"), None)
+        df.columns = [c.strip().upper() for c in df.columns] # Normaliza tudo para Maiúsculo
+        
+        # Identifica colunas (procura por PAGAMENTO e STATUS)
+        col_status = "STATUS" if "STATUS" in df.columns else None
+        col_pagto = "PAGAMENTO" if "PAGAMENTO" in df.columns else None
 
-        if coluna_status_nome:
-            colunas_bloqueadas = [c for c in df.columns if c != coluna_status_nome]
+        if col_status and col_pagto:
+            # Bloqueia todas as colunas que NÃO sejam Pagamento ou Status
+            colunas_bloqueadas = [c for c in df.columns if c not in [col_status, col_pagto]]
 
             df_editado = st.data_editor(
                 df, 
                 column_config={
-                    coluna_status_nome: st.column_config.SelectboxColumn(
-                        "Status Atual",
+                    col_status: st.column_config.SelectboxColumn(
+                        "Status",
                         width="medium",
-                        options=[
-                            "PENDENTE", "GERADO", "NÃO GERADO", 
-                            "CANCELADO", "ENTREGUE", "ORÇAMENTO", "RESERVADO"
-                        ],
+                        options=["PENDENTE", "GERADO", "NÃO GERADO", "CANCELADO", "ENTREGUE", "ORÇAMENTO", "RESERVADO"],
+                        required=True
+                    ),
+                    col_pagto: st.column_config.SelectboxColumn(
+                        "Pagamento",
+                        width="medium",
+                        options=["A COMBINAR", "PIX", "BOLETO", "CARTÃO"],
                         required=True
                     )
                 },
@@ -136,28 +139,27 @@ with tab_historico:
                 height=500
             )
             
-            if st.button("💾 Atualizar Status na Nuvem", type="primary"):
+            if st.button("💾 Atualizar Alterações na Nuvem", type="primary"):
                 try:
-                    db.atualizar_apenas_status(df_editado) 
-                    st.success("✅ Status atualizados com sucesso!")
+                    db.atualizar_pedidos_editaveis(df_editado) 
+                    st.success("✅ Dados atualizados com sucesso!")
                     time.sleep(1)
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao atualizar: {e}")
         else:
-            st.error("⚠️ Coluna 'STATUS' não encontrada na planilha.")
+            st.error("⚠️ Colunas 'STATUS' ou 'PAGAMENTO' não encontradas no cabeçalho da planilha.")
+            st.dataframe(df)
     else:
         st.info("Nenhum pedido encontrado.")
 
-# --- ABA 3: CLIENTES ---
+# --- ABA 3: CLIENTES (Sem alterações) ---
 with tab_clientes:
     st.subheader("Cadastro de Parceiros")
-    
     with st.form(key="form_novo_cliente", clear_on_submit=True):
         c1, c2 = st.columns([2, 1])
         with c1: novo_nome = st.text_input("Nome do Cliente / Empresa")
         with c2: nova_cidade = st.text_input("Cidade", value="SÃO CARLOS")
-            
         if st.form_submit_button("Salvar Novo Cliente"):
             if novo_nome:
                 try:
