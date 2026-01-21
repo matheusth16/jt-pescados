@@ -54,7 +54,7 @@ tab_dash, tab_pedidos, tab_historico, tab_clientes = st.tabs([
 ])
 
 
-# --- ABA 1: DASHBOARD (VISUAL ALINHADO) ---
+# --- ABA 1: DASHBOARD (COM CORREÇÃO PARA CELULAR) ---
 with tab_dash:
     st.subheader("📊 Visão Geral da Operação")
     
@@ -80,27 +80,29 @@ with tab_dash:
                     contagem_status, 
                     values="QUANTIDADE", 
                     names="STATUS", 
-                    hole=0.7, # Buraco maior para visual mais "fino"
+                    hole=0.7,
                     color_discrete_sequence=["#00FF7F", "#FFD700", "#FF4500", "#1E90FF", "#DA70D6"] 
                 )
                 
                 fig.update_traces(
                     textposition='outside', 
                     textinfo='percent+label',
+                    insidetextorientation='horizontal', # Garante que o texto fique reto
                     marker=dict(line=dict(color='#000000', width=2)),
-                    textfont_size=16 
+                    textfont_size=14 # Reduzi levemente para caber no mobile
                 )
                 
                 fig.update_layout(
                     paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)",
-                    font=dict(size=14, color="white"),
+                    font=dict(size=12, color="white"), # Fonte geral ajustada
                     showlegend=False, 
-                    # Margens ajustadas para centralizar o donut na nova altura
-                    margin=dict(t=80, b=80, l=20, r=20) 
+                    # AQUI ESTÁ A CORREÇÃO DO CORTE NO CELULAR:
+                    # Aumentei as margens laterais (l=60, r=60) para empurrar o gráfico para o centro
+                    margin=dict(t=40, b=40, l=60, r=60) 
                 )
                 
-                # AQUI ESTÁ A CORREÇÃO: Aumentei para 650px para alinhar com a tabela
+                # Mantive a altura para alinhar no Desktop, mas as margens acima protegem o Mobile
                 st.plotly_chart(fig, use_container_width=True, height=650)
             
             with col_dados:
@@ -115,12 +117,10 @@ with tab_dash:
                 # CÁLCULO DAS 3 CATEGORIAS
                 entregues = len(df[df["STATUS"] == "ENTREGUE"])
                 
-                # Em Andamento (Soma tudo que está ativo)
                 em_andamento = len(df[df["STATUS"].isin([
                     "PENDENTE", "GERADO", "ORÇAMENTO", "NÃO GERADO", "RESERVADO"
                 ])])
                 
-                # Cancelados
                 cancelados = len(df[df["STATUS"] == "CANCELADO"])
                 
                 # EXIBIÇÃO EM 3 COLUNAS
