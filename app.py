@@ -20,7 +20,7 @@ styles.aplicar_estilos()
 with st.sidebar:
     try:
         # Tenta carregar da pasta assets se existir, ou url, ou fallback
-        st.image("assets/imagem_empresa.jpg", use_container_width=True)
+        st.image("assets/imagem da empresa.jpg", use_container_width=True)
     except:
         st.image("https://cdn-icons-png.flaticon.com/512/3063/3063822.png", width=100)
 
@@ -114,4 +114,5 @@ with tab_clientes:
                     time.sleep(1)
                     st.rerun()
                 except Exception as e:
+
                     st.error(f"Erro: {e}")
