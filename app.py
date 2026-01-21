@@ -55,6 +55,7 @@ tab_dash, tab_pedidos, tab_historico, tab_clientes = st.tabs([
 
 
 # --- ABA 1: DASHBOARD (COM CORREÇÃO PARA CELULAR) ---
+# --- ABA 1: DASHBOARD (COM GRÁFICO DE PAGAMENTOS) ---
 with tab_dash:
     st.subheader("📊 Visão Geral da Operação")
     
@@ -65,17 +66,20 @@ with tab_dash:
         # Padroniza nomes das colunas
         df.columns = [c.strip().upper() for c in df.columns]
         
-        if "STATUS" in df.columns:
-            # 1. PREPARAÇÃO DOS DADOS
-            contagem_status = df["STATUS"].value_counts().reset_index()
-            contagem_status.columns = ["STATUS", "QUANTIDADE"]
-            
+        # Verifica se as colunas necessárias existem
+        col_status_existe = "STATUS" in df.columns
+        col_pagto_existe = "PAGAMENTO" in df.columns
+        
+        if col_status_existe:
             # 2. LAYOUT DE COLUNAS
-            # Ajustei para [1.8, 1] para dar mais respiro aos cards da direita
             col_grafico, col_dados = st.columns([1.8, 1]) 
             
+            # --- COLUNA DA ESQUERDA: DONUT STATUS ---
             with col_grafico:
-                # Cria o Gráfico de Rosca
+                # Prepara dados
+                contagem_status = df["STATUS"].value_counts().reset_index()
+                contagem_status.columns = ["STATUS", "QUANTIDADE"]
+                
                 fig = px.pie(
                     contagem_status, 
                     values="QUANTIDADE", 
@@ -87,43 +91,38 @@ with tab_dash:
                 fig.update_traces(
                     textposition='outside', 
                     textinfo='percent+label',
-                    insidetextorientation='horizontal', # Garante que o texto fique reto
+                    insidetextorientation='horizontal',
                     marker=dict(line=dict(color='#000000', width=2)),
-                    textfont_size=14 # Reduzi levemente para caber no mobile
+                    textfont_size=14
                 )
                 
                 fig.update_layout(
                     paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)",
-                    font=dict(size=12, color="white"), # Fonte geral ajustada
+                    font=dict(size=12, color="white"),
                     showlegend=False, 
-                    # AQUI ESTÁ A CORREÇÃO DO CORTE NO CELULAR:
-                    # Aumentei as margens laterais (l=60, r=60) para empurrar o gráfico para o centro
                     margin=dict(t=40, b=40, l=60, r=60) 
                 )
                 
-                # Mantive a altura para alinhar no Desktop, mas as margens acima protegem o Mobile
                 st.plotly_chart(fig, use_container_width=True, height=650)
             
+            # --- COLUNA DA DIREITA: MÉTRICAS + PAGAMENTOS ---
             with col_dados:
                 st.markdown("### Resumo Rápido")
                 
-                # Métrica 1: Total Geral
+                # Métrica 1: Total
                 total_pedidos = len(df)
                 st.metric(label="📦 Total de Pedidos", value=total_pedidos)
                 
                 st.markdown("---")
                 
-                # CÁLCULO DAS 3 CATEGORIAS
+                # Métricas Individuais
                 entregues = len(df[df["STATUS"] == "ENTREGUE"])
-                
                 em_andamento = len(df[df["STATUS"].isin([
                     "PENDENTE", "GERADO", "ORÇAMENTO", "NÃO GERADO", "RESERVADO"
                 ])])
-                
                 cancelados = len(df[df["STATUS"] == "CANCELADO"])
                 
-                # EXIBIÇÃO EM 3 COLUNAS
                 c1, c2, c3 = st.columns(3)
                 with c1: st.metric("✅ Entregues", entregues)
                 with c2: st.metric("🏃 Ativos", em_andamento)
@@ -131,8 +130,47 @@ with tab_dash:
                 
                 st.markdown("---")
                 
-                # Tabela
-                st.caption("Detalhamento:")
+                # --- NOVO: GRÁFICO DE PAGAMENTOS ---
+                if col_pagto_existe:
+                    st.caption("💳 Preferência de Pagamento")
+                    
+                    # Limpa dados vazios se houver
+                    df_pagto = df[df["PAGAMENTO"] != ""]
+                    contagem_pagto = df_pagto["PAGAMENTO"].value_counts().reset_index()
+                    contagem_pagto.columns = ["MEIO", "QTD"]
+                    
+                    # Gráfico de Barras Horizontais
+                    fig_pagto = px.bar(
+                        contagem_pagto,
+                        x="QTD",
+                        y="MEIO",
+                        orientation='h',
+                        text="QTD", # Mostra o número na barra
+                        color_discrete_sequence=["#00CC96"] # Cor Verde/Azulada moderna
+                    )
+                    
+                    fig_pagto.update_traces(
+                        textposition='outside',
+                        marker_line_color='rgb(0,0,0)',
+                        marker_line_width=1.5
+                    )
+                    
+                    fig_pagto.update_layout(
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        font=dict(color="white"),
+                        xaxis=dict(showgrid=False, showticklabels=False), # Limpa eixo X
+                        yaxis=dict(showgrid=False),
+                        margin=dict(t=0, b=0, l=0, r=0),
+                        height=200 # Compacto para caber bem
+                    )
+                    
+                    st.plotly_chart(fig_pagto, use_container_width=True)
+                
+                st.markdown("---")
+                
+                # Tabela Detalhada
+                st.caption("Detalhamento de Status:")
                 st.dataframe(
                     contagem_status, 
                     use_container_width=True,
@@ -140,9 +178,9 @@ with tab_dash:
                 )
                 
         else:
-            st.warning("⚠️ Não foi possível encontrar a coluna de STATUS para gerar o gráfico.")
+            st.warning("⚠️ Aguardando dados de STATUS...")
     else:
-        st.info("📭 Aguardando o primeiro pedido para gerar indicadores...")
+        st.info("📭 Aguardando o primeiro pedido...")
         
         
 # --- ABA 2: NOVO PEDIDO (Manteve igual) ---
