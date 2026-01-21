@@ -16,6 +16,17 @@ st.set_page_config(
 # 2. Carregar Estilos
 styles.aplicar_estilos()
 
+# --- CONSTANTES GLOBAIS ---
+OPCOES_STATUS = [
+    "PENDENTE",
+    "GERADO",
+    "NÃO GERADO",
+    "CANCELADO",
+    "ENTREGUE",
+    "ORÇAMENTO",
+    "RESERVADO"
+]
+
 # 3. Sidebar e Métricas
 with st.sidebar:
     try:
@@ -52,8 +63,12 @@ with tab_pedidos:
                 nome_cliente = st.text_input("Nome do Cliente (Avulso):")
             else:
                 nome_cliente = st.selectbox("Selecione o Cliente:", options=lista_nomes)
+        
         with col2:
             dia_entrega = st.date_input("Data de Entrega:", value=datetime.today())
+
+        # Novo campo de Status
+        status_inicial = st.selectbox("Status Inicial:", options=OPCOES_STATUS, index=0)
 
         pedido = st.text_area("Descrição Detalhada:", height=150)
         botao_enviar = st.form_submit_button("💾 Salvar Pedido")
@@ -63,8 +78,8 @@ with tab_pedidos:
                 st.warning("Preencha a descrição do pedido.")
             else:
                 try:
-                    # Backend faz o trabalho sujo
-                    db.salvar_pedido(nome_cliente, pedido, dia_entrega)
+                    # Agora passamos também o status para o backend
+                    db.salvar_pedido(nome_cliente, pedido, dia_entrega, status_inicial)
                     st.success("✅ Pedido salvo com sucesso!")
                     time.sleep(1)
                     st.rerun()
@@ -75,11 +90,27 @@ with tab_pedidos:
 with tab_historico:
     st.subheader("Base de Dados Completa")
     
-    df = db.buscar_todos_pedidos() # Backend
+    df = db.buscar_todos_pedidos() # Backend deve retornar coluna 'STATUS' agora
     
     if not df.empty:
+        # Configuração das colunas para o editor
+        config_colunas = {
+            "STATUS": st.column_config.SelectboxColumn(
+                "Status",
+                help="Selecione o status do pedido",
+                width="medium",
+                options=OPCOES_STATUS,
+                required=True
+            ),
+            "Pedido": st.column_config.TextColumn(
+                "Detalhes do Pedido",
+                width="large"
+            )
+        }
+
         df_editado = st.data_editor(
             df, 
+            column_config=config_colunas,
             num_rows="dynamic", 
             use_container_width=True,
             key="editor_pedidos",
