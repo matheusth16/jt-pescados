@@ -1,5 +1,6 @@
 import streamlit as st
 import time
+import plotly.express as px # Nova biblioteca de gráficos
 from datetime import datetime
 import services.database as db
 import ui.styles as styles
@@ -43,15 +44,113 @@ with st.sidebar:
 
 # --- CORPO PRINCIPAL ---
 st.title("📦 Gestão de Pedidos")
-tab_pedidos, tab_historico, tab_clientes = st.tabs(["📝 Novo Pedido", "📊 Gerenciar Pedidos", "➕ Cadastrar Clientes"])
 
-# --- ABA 1: NOVO PEDIDO ---
+# NOVA ESTRUTURA DE ABAS (Dashboard em primeiro)
+tab_dash, tab_pedidos, tab_historico, tab_clientes = st.tabs([
+    "📈 Dashboard", 
+    "📝 Novo Pedido", 
+    "📊 Gerenciar Pedidos", 
+    "➕ Cadastrar Clientes"
+])
+
+
+# --- ABA 1: DASHBOARD (VISUAL ALINHADO) ---
+with tab_dash:
+    st.subheader("📊 Visão Geral da Operação")
+    
+    # Busca os dados
+    df = db.buscar_pedidos_visualizacao()
+    
+    if not df.empty:
+        # Padroniza nomes das colunas
+        df.columns = [c.strip().upper() for c in df.columns]
+        
+        if "STATUS" in df.columns:
+            # 1. PREPARAÇÃO DOS DADOS
+            contagem_status = df["STATUS"].value_counts().reset_index()
+            contagem_status.columns = ["STATUS", "QUANTIDADE"]
+            
+            # 2. LAYOUT DE COLUNAS
+            # Ajustei para [1.8, 1] para dar mais respiro aos cards da direita
+            col_grafico, col_dados = st.columns([1.8, 1]) 
+            
+            with col_grafico:
+                # Cria o Gráfico de Rosca
+                fig = px.pie(
+                    contagem_status, 
+                    values="QUANTIDADE", 
+                    names="STATUS", 
+                    hole=0.7, # Buraco maior para visual mais "fino"
+                    color_discrete_sequence=["#00FF7F", "#FFD700", "#FF4500", "#1E90FF", "#DA70D6"] 
+                )
+                
+                fig.update_traces(
+                    textposition='outside', 
+                    textinfo='percent+label',
+                    marker=dict(line=dict(color='#000000', width=2)),
+                    textfont_size=16 
+                )
+                
+                fig.update_layout(
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    font=dict(size=14, color="white"),
+                    showlegend=False, 
+                    # Margens ajustadas para centralizar o donut na nova altura
+                    margin=dict(t=80, b=80, l=20, r=20) 
+                )
+                
+                # AQUI ESTÁ A CORREÇÃO: Aumentei para 650px para alinhar com a tabela
+                st.plotly_chart(fig, use_container_width=True, height=650)
+            
+            with col_dados:
+                st.markdown("### Resumo Rápido")
+                
+                # Métrica 1: Total Geral
+                total_pedidos = len(df)
+                st.metric(label="📦 Total de Pedidos", value=total_pedidos)
+                
+                st.markdown("---")
+                
+                # CÁLCULO DAS 3 CATEGORIAS
+                entregues = len(df[df["STATUS"] == "ENTREGUE"])
+                
+                # Em Andamento (Soma tudo que está ativo)
+                em_andamento = len(df[df["STATUS"].isin([
+                    "PENDENTE", "GERADO", "ORÇAMENTO", "NÃO GERADO", "RESERVADO"
+                ])])
+                
+                # Cancelados
+                cancelados = len(df[df["STATUS"] == "CANCELADO"])
+                
+                # EXIBIÇÃO EM 3 COLUNAS
+                c1, c2, c3 = st.columns(3)
+                with c1: st.metric("✅ Entregues", entregues)
+                with c2: st.metric("🏃 Ativos", em_andamento)
+                with c3: st.metric("🚫 Cancelados", cancelados)
+                
+                st.markdown("---")
+                
+                # Tabela
+                st.caption("Detalhamento:")
+                st.dataframe(
+                    contagem_status, 
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+        else:
+            st.warning("⚠️ Não foi possível encontrar a coluna de STATUS para gerar o gráfico.")
+    else:
+        st.info("📭 Aguardando o primeiro pedido para gerar indicadores...")
+        
+        
+# --- ABA 2: NOVO PEDIDO (Manteve igual) ---
 with tab_pedidos:
     st.subheader("Lançamento de Pedido")
     lista_nomes = db.listar_clientes() 
 
     with st.form(key="form_pedido", clear_on_submit=True):
-        # Layout: Linha 1 (Cliente e Data) | Linha 2 (Pagamento e Status)
         c1, c2 = st.columns([2, 1])
         with c1:
             if not lista_nomes:
@@ -69,7 +168,6 @@ with tab_pedidos:
 
         c3, c4 = st.columns(2)
         with c3:
-            # NOVO: Campo de Pagamento
             pagamento_inicial = st.selectbox(
                 "Forma de Pagamento:",
                 options=["A COMBINAR", "PIX", "BOLETO", "CARTÃO"],
@@ -91,43 +189,38 @@ with tab_pedidos:
                 st.warning("Preencha a descrição do pedido.")
             else:
                 try:
-                    # Envia os 5 dados agora (incluindo pagamento)
                     db.salvar_pedido(nome_cliente, pedido, dia_entrega, pagamento_inicial, status_inicial)
-                    st.success(f"✅ Pedido Salvo! (Status: {status_inicial} | Pagto: {pagamento_inicial})")
+                    st.success(f"✅ Pedido Salvo! (Status: {status_inicial})")
                     time.sleep(1)
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erro: {e}")
 
-# --- ABA 2: GERENCIAMENTO ---
+# --- ABA 3: GERENCIAMENTO (Manteve igual) ---
 with tab_historico:
     st.subheader("Painel de Controle")
     
     df = db.buscar_pedidos_visualizacao() 
     
     if not df.empty:
-        df.columns = [c.strip().upper() for c in df.columns] # Normaliza tudo para Maiúsculo
+        df.columns = [c.strip().upper() for c in df.columns] 
         
-        # Identifica colunas (procura por PAGAMENTO e STATUS)
         col_status = "STATUS" if "STATUS" in df.columns else None
         col_pagto = "PAGAMENTO" if "PAGAMENTO" in df.columns else None
 
         if col_status and col_pagto:
-            # Bloqueia todas as colunas que NÃO sejam Pagamento ou Status
             colunas_bloqueadas = [c for c in df.columns if c not in [col_status, col_pagto]]
 
             df_editado = st.data_editor(
                 df, 
                 column_config={
                     col_status: st.column_config.SelectboxColumn(
-                        "Status",
-                        width="medium",
+                        "Status", width="medium",
                         options=["PENDENTE", "GERADO", "NÃO GERADO", "CANCELADO", "ENTREGUE", "ORÇAMENTO", "RESERVADO"],
                         required=True
                     ),
                     col_pagto: st.column_config.SelectboxColumn(
-                        "Pagamento",
-                        width="medium",
+                        "Pagamento", width="medium",
                         options=["A COMBINAR", "PIX", "BOLETO", "CARTÃO"],
                         required=True
                     )
@@ -148,12 +241,12 @@ with tab_historico:
                 except Exception as e:
                     st.error(f"Erro ao atualizar: {e}")
         else:
-            st.error("⚠️ Colunas 'STATUS' ou 'PAGAMENTO' não encontradas no cabeçalho da planilha.")
+            st.error("⚠️ Colunas 'STATUS' ou 'PAGAMENTO' não encontradas.")
             st.dataframe(df)
     else:
         st.info("Nenhum pedido encontrado.")
 
-# --- ABA 3: CLIENTES (Sem alterações) ---
+# --- ABA 4: CLIENTES (Manteve igual) ---
 with tab_clientes:
     st.subheader("Cadastro de Parceiros")
     with st.form(key="form_novo_cliente", clear_on_submit=True):
