@@ -45,6 +45,11 @@ st.set_page_config(
 # 2. Carregar Estilos
 styles.aplicar_estilos()
 
+# 3. Inicializar Estado do Formulário (Form ID)
+# Essa é a mágica para limpar os campos sem erro.
+if "form_id" not in st.session_state:
+    st.session_state.form_id = 0
+
 # 3. Sidebar
 with st.sidebar:
     try:
@@ -229,53 +234,63 @@ with tab_pedidos:
         c_topo1, c_topo2 = st.columns([2, 1])
         
         with c_topo1:
+            # Índice Padrão
+            try:
+                idx_def = lista_nomes.index("VENDA A CONSUMIDOR")
+            except:
+                idx_def = 0
+
+            # NOTA: Adicionamos o ID do Formulário na KEY
+            # Isso garante que quando o ID mudar, o campo é recriado do zero
+            key_cliente_manual = f"cliente_manual_{st.session_state.form_id}"
+            key_cliente_select = f"cliente_select_{st.session_state.form_id}"
+
             if not lista_nomes:
-                nome_cliente = st.text_input("Nome do Cliente (Avulso):")
+                nome_cliente = st.text_input("Nome do Cliente (Avulso):", key=key_cliente_manual)
             else:
-                try:
-                    index_padrao = lista_nomes.index("VENDA A CONSUMIDOR")
-                except ValueError:
-                    index_padrao = 0
-                
-                nome_cliente = st.selectbox("👤 Selecione o Cliente:", options=lista_nomes, index=index_padrao)
+                nome_cliente = st.selectbox("👤 Selecione o Cliente:", options=lista_nomes, index=idx_def, key=key_cliente_select)
         
         with c_topo2:
-            dia_entrega = st.date_input("📅 Entrega:", value=datetime.today())
+            key_data = f"data_entrega_{st.session_state.form_id}"
+            dia_entrega = st.date_input("📅 Entrega:", value=datetime.today(), key=key_data)
 
         st.markdown("---")
 
         # --- LINHA 2: DADOS FINANCEIROS E STATUS ---
         
         # 1. Gatilho (Checkbox)
-        usar_nr = st.checkbox("Deseja informar o **Número do Pedido (NR)**?", value=False)
+        key_check = f"check_nr_{st.session_state.form_id}"
+        usar_nr = st.checkbox("Deseja informar o **Número do Pedido (NR)**?", value=False, key=key_check)
         
         # 2. Definição Dinâmica das Colunas
-        # Se usar NR = 3 colunas. Se não usar = 2 colunas.
         if usar_nr:
             cols = st.columns(3)
         else:
             cols = st.columns(2)
 
-        # 3. Preenchimento das Colunas (Usando índices da lista 'cols')
-        
-        # Coluna 0 (Sempre existe): Pagamento
+        key_pagto = f"pagto_{st.session_state.form_id}"
+        key_status = f"status_{st.session_state.form_id}"
+        key_nr = f"nr_input_{st.session_state.form_id}"
+
+        # Coluna 0: Pagamento
         with cols[0]:
-            pagamento_inicial = st.selectbox("💳 Pagamento:", options=LISTA_PAGAMENTO, index=0)
+            pagamento_inicial = st.selectbox("💳 Pagamento:", options=LISTA_PAGAMENTO, index=0, key=key_pagto)
         
-        # Coluna 1 (Sempre existe): Status
+        # Coluna 1: Status
         with cols[1]:
-            status_inicial = st.selectbox("📊 Status:", options=LISTA_STATUS, index=0)
+            status_inicial = st.selectbox("📊 Status:", options=LISTA_STATUS, index=0, key=key_status)
             
-        # Coluna 2 (Só existe se usar_nr for True): NR Pedido
+        # Coluna 2: NR Pedido
         if usar_nr:
             with cols[2]:
-                nr_pedido_input = st.text_input("🔢 Nº Pedido:", placeholder="Digite...")
+                nr_pedido_input = st.text_input("🔢 Nº Pedido:", placeholder="Digite...", key=key_nr)
         else:
-            nr_pedido_input = "" # Garante a variável vazia se não usar
+            nr_pedido_input = "" 
 
         # --- LINHA 3: DESCRIÇÃO ---
         st.markdown("<br>", unsafe_allow_html=True)
-        pedido = st.text_area("🛒 Descrição do Pedido:", height=150, placeholder="Ex: 5kg de Tilápia, 2 Pacotes de Camarão...")
+        key_desc = f"descricao_{st.session_state.form_id}"
+        pedido = st.text_area("🛒 Descrição do Pedido:", height=150, placeholder="Ex: 5kg de Tilápia, 2 Pacotes de Camarão...", key=key_desc)
         
         st.markdown("<br>", unsafe_allow_html=True)
         
@@ -289,10 +304,16 @@ with tab_pedidos:
                     db.salvar_pedido(nome_cliente, pedido, dia_entrega, pagamento_inicial, status_inicial, nr_pedido_input)
                     st.success(f"✅ Pedido Salvo! Status: **{status_inicial}**")
                     time.sleep(1)
+                    
+                    # --- LIMPEZA DOS CAMPOS (RESET) ---
+                    # Incrementamos o ID do Formulário.
+                    # Isso força o Streamlit a criar novos widgets "virgens" na próxima rodada.
+                    st.session_state.form_id += 1
+                    
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erro: {e}")
-                                      
+
 # --- ABA 3: GERENCIAMENTO ---
 with tab_historico:
     st.subheader("Painel de Controle")
