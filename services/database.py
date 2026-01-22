@@ -53,9 +53,9 @@ def listar_clientes():
     except:
         return []
 
-def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_escolhido):
+def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_escolhido, nr_pedido=""):
     """
-    Salva dados na aba Respostas e injeta Pagamento (Col F) e Status (Col I)
+    Salva dados na aba Respostas e injeta Pagamento (Col F), Status (Col I) e NR Pedido (Col J)
     """
     sh = get_connection()
     # Limpa o cache das métricas para atualizar o número de pedidos na hora
@@ -82,11 +82,17 @@ def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_esc
     # Pequena pausa para o Google respirar
     time.sleep(1)
     
-    # 3. Grava Pagamento e Status na aba Pedidos (Linha exata)
+    # 3. Grava Pagamento, Status e NR PEDIDO na aba Pedidos (Linha exata)
     # Coluna F = 6 (Pagamento)
     # Coluna I = 9 (Status)
+    # Coluna J = 10 (NR PEDIDO)
+    
     ws_pedidos.update_cell(proxima_linha, 6, pagamento_escolhido)
     ws_pedidos.update_cell(proxima_linha, 9, status_escolhido)
+    
+    # Só salva na coluna J se o NR Pedido tiver sido preenchido
+    if nr_pedido:
+        ws_pedidos.update_cell(proxima_linha, 10, nr_pedido)
 
 def buscar_pedidos_visualizacao():
     sh = get_connection()
@@ -102,7 +108,7 @@ def buscar_pedidos_visualizacao():
 
 def atualizar_pedidos_editaveis(df_editado):
     """
-    Atualiza as colunas de PAGAMENTO (F) e STATUS (I) em lote
+    Atualiza as colunas de PAGAMENTO (F), STATUS (I) e NR PEDIDO (J) em lote
     """
     sh = get_connection()
     ws = sh.worksheet("Pedidos")
@@ -110,19 +116,27 @@ def atualizar_pedidos_editaveis(df_editado):
     # Normaliza nomes das colunas
     df_editado.columns = [c.strip().upper() for c in df_editado.columns]
     
-    # Prepara dados do Pagamento
+    # 1. Atualiza Pagamento (Coluna F)
     col_pagto = "PAGAMENTO" if "PAGAMENTO" in df_editado.columns else None
     if col_pagto:
         lista_pagto = [[p] for p in df_editado[col_pagto].tolist()]
         range_pagto = f"F2:F{len(lista_pagto) + 1}"
         ws.update(range_name=range_pagto, values=lista_pagto)
 
-    # Prepara dados do Status
+    # 2. Atualiza Status (Coluna I)
     col_status = "STATUS" if "STATUS" in df_editado.columns else None
     if col_status:
         lista_status = [[s] for s in df_editado[col_status].tolist()]
         range_status = f"I2:I{len(lista_status) + 1}"
         ws.update(range_name=range_status, values=lista_status)
+        
+    # 3. Atualiza NR Pedido (Coluna J)
+    col_nr = "NR PEDIDO" if "NR PEDIDO" in df_editado.columns else None
+    if col_nr:
+        # Converte para string para evitar erro se for número puro
+        lista_nr = [[str(n) if n else ""] for n in df_editado[col_nr].tolist()]
+        range_nr = f"J2:J{len(lista_nr) + 1}"
+        ws.update(range_name=range_nr, values=lista_nr)
 
 def criar_novo_cliente(nome, cidade):
     sh = get_connection()

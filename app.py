@@ -7,31 +7,31 @@ import ui.styles as styles
 
 # --- CONFIGURAÇÕES GLOBAIS ---
 LISTA_STATUS = [
-    "🆕 GERADO", 
-    "⏳ PENDENTE", 
-    "🔴 NÃO GERADO", 
-    "🚫 CANCELADO", 
-    "✅ ENTREGUE", 
-    "📝 ORÇAMENTO", 
-    "🔒 RESERVADO"
+    "GERADO", 
+    "PENDENTE", 
+    "NÃO GERADO", 
+    "CANCELADO", 
+    "ENTREGUE", 
+    "ORÇAMENTO", 
+    "RESERVADO"
 ]
 
 LISTA_PAGAMENTO = [
-    "🤝 A COMBINAR", 
-    "💸 PIX", 
-    "📄 BOLETO", 
-    "💳 CARTÃO"
+    "A COMBINAR", 
+    "PIX", 
+    "BOLETO", 
+    "CARTÃO"
 ]
 
 # MAPA DE CORES
 CORES_STATUS = {
-    "🆕 GERADO": "#FFA500",      "GERADO": "#FFA500",       # Laranja
-    "⏳ PENDENTE": "#FFEB3B",    "PENDENTE": "#FFEB3B",     # Amarelo
-    "🔴 NÃO GERADO": "#8B0000",  "NÃO GERADO": "#8B0000",   # Vermelho Escuro
-    "🚫 CANCELADO": "#FF8080",   "CANCELADO": "#FF8080",    # Salmão
-    "✅ ENTREGUE": "#28A745",    "ENTREGUE": "#28A745",     # Verde
-    "📝 ORÇAMENTO": "#E0E0E0",   "ORÇAMENTO": "#E0E0E0",    # Cinza Claro
-    "🔒 RESERVADO": "#0056b3",   "RESERVADO": "#0056b3"     # Azul Forte
+    "GERADO": "#FFA500",       "🆕 GERADO": "#FFA500",      # Laranja
+    "PENDENTE": "#FFEB3B",     "⏳ PENDENTE": "#FFEB3B",    # Amarelo
+    "NÃO GERADO": "#8B0000",   "🔴 NÃO GERADO": "#8B0000",  # Vermelho Escuro
+    "CANCELADO": "#FF8080",    "🚫 CANCELADO": "#FF8080",   # Salmão
+    "ENTREGUE": "#28A745",     "✅ ENTREGUE": "#28A745",    # Verde
+    "ORÇAMENTO": "#E0E0E0",    "📝 ORÇAMENTO": "#E0E0E0",   # Cinza Claro
+    "RESERVADO": "#0056b3",    "🔒 RESERVADO": "#0056b3"    # Azul Forte
 }
 
 # 1. Configuração da Página
@@ -91,7 +91,7 @@ tab_dash, tab_pedidos, tab_historico, tab_clientes = st.tabs([
 with tab_dash:
     st.subheader("📊 Visão Geral da Operação")
     
-    # Função de Cores para a Tabela
+    # Função de Cores (Badges)
     def colorir_status(val):
         val_str = str(val).upper()
         bg_color = "transparent"
@@ -149,7 +149,6 @@ with tab_dash:
                         plot_bgcolor="rgba(0,0,0,0)",
                         font=dict(size=12, color="white"),
                         showlegend=False, 
-                        # CORREÇÃO AQUI: Aumentei o 'b' (bottom) de 20 para 60
                         margin=dict(t=20, b=60, l=60, r=60) 
                     )
                     
@@ -224,9 +223,12 @@ with tab_pedidos:
     lista_nomes = db.listar_clientes() 
 
     with st.container(border=True):
-        with st.form(key="form_pedido", clear_on_submit=True):
-            st.markdown("#### 📝 Dados do Pedido")
-            
+        st.markdown("#### 📝 Dados do Pedido")
+        
+        # --- LINHA 1: CLIENTE E DATA ---
+        c_topo1, c_topo2 = st.columns([2, 1])
+        
+        with c_topo1:
             if not lista_nomes:
                 nome_cliente = st.text_input("Nome do Cliente (Avulso):")
             else:
@@ -236,32 +238,61 @@ with tab_pedidos:
                     index_padrao = 0
                 
                 nome_cliente = st.selectbox("👤 Selecione o Cliente:", options=lista_nomes, index=index_padrao)
+        
+        with c_topo2:
+            dia_entrega = st.date_input("📅 Entrega:", value=datetime.today())
+
+        st.markdown("---")
+
+        # --- LINHA 2: DADOS FINANCEIROS E STATUS ---
+        
+        # 1. Gatilho (Checkbox)
+        usar_nr = st.checkbox("Deseja informar o **Número do Pedido (NR)**?", value=False)
+        
+        # 2. Definição Dinâmica das Colunas
+        # Se usar NR = 3 colunas. Se não usar = 2 colunas.
+        if usar_nr:
+            cols = st.columns(3)
+        else:
+            cols = st.columns(2)
+
+        # 3. Preenchimento das Colunas (Usando índices da lista 'cols')
+        
+        # Coluna 0 (Sempre existe): Pagamento
+        with cols[0]:
+            pagamento_inicial = st.selectbox("💳 Pagamento:", options=LISTA_PAGAMENTO, index=0)
+        
+        # Coluna 1 (Sempre existe): Status
+        with cols[1]:
+            status_inicial = st.selectbox("📊 Status:", options=LISTA_STATUS, index=0)
             
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                dia_entrega = st.date_input("📅 Entrega:", value=datetime.today())
-            with c2:
-                pagamento_inicial = st.selectbox("💳 Pagamento:", options=LISTA_PAGAMENTO, index=0)
-            with c3:
-                status_inicial = st.selectbox("📊 Status:", options=LISTA_STATUS, index=0)
+        # Coluna 2 (Só existe se usar_nr for True): NR Pedido
+        if usar_nr:
+            with cols[2]:
+                nr_pedido_input = st.text_input("🔢 Nº Pedido:", placeholder="Digite...")
+        else:
+            nr_pedido_input = "" # Garante a variável vazia se não usar
 
-            pedido = st.text_area("🛒 Descrição do Pedido:", height=150, placeholder="Ex: 5kg de Tilápia, 2 Pacotes de Camarão...")
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            botao_enviar = st.form_submit_button("💾 Salvar Pedido", use_container_width=True)
+        # --- LINHA 3: DESCRIÇÃO ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        pedido = st.text_area("🛒 Descrição do Pedido:", height=150, placeholder="Ex: 5kg de Tilápia, 2 Pacotes de Camarão...")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        botao_enviar = st.button("💾 Salvar Pedido", type="primary", use_container_width=True)
 
-            if botao_enviar:
-                if not pedido:
-                    st.warning("Preencha a descrição do pedido.")
-                else:
-                    try:
-                        db.salvar_pedido(nome_cliente, pedido, dia_entrega, pagamento_inicial, status_inicial)
-                        st.success(f"✅ Pedido Salvo com Sucesso! Status: **{status_inicial}**")
-                        time.sleep(1)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro: {e}")
-
+        if botao_enviar:
+            if not pedido:
+                st.warning("Preencha a descrição do pedido.")
+            else:
+                try:
+                    db.salvar_pedido(nome_cliente, pedido, dia_entrega, pagamento_inicial, status_inicial, nr_pedido_input)
+                    st.success(f"✅ Pedido Salvo! Status: **{status_inicial}**")
+                    time.sleep(1)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro: {e}")
+                                      
 # --- ABA 3: GERENCIAMENTO ---
 with tab_historico:
     st.subheader("Painel de Controle")
@@ -274,9 +305,14 @@ with tab_historico:
             
             col_status = "STATUS" if "STATUS" in df.columns else None
             col_pagto = "PAGAMENTO" if "PAGAMENTO" in df.columns else None
+            col_nr = "NR PEDIDO" if "NR PEDIDO" in df.columns else None
 
             if col_status and col_pagto:
-                colunas_bloqueadas = [c for c in df.columns if c not in [col_status, col_pagto]]
+                campos_editaveis = [col_status, col_pagto]
+                if col_nr:
+                    campos_editaveis.append(col_nr)
+                
+                colunas_bloqueadas = [c for c in df.columns if c not in campos_editaveis]
 
                 df_editado = st.data_editor(
                     df, 
@@ -290,6 +326,10 @@ with tab_historico:
                             "Pagamento", width="medium",
                             options=LISTA_PAGAMENTO, 
                             required=True
+                        ),
+                        col_nr: st.column_config.TextColumn(
+                            "Nr Pedido", width="small",
+                            help="Edite o número do pedido aqui se necessário"
                         )
                     },
                     disabled=colunas_bloqueadas, 
