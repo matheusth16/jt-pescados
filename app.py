@@ -46,7 +46,6 @@ st.set_page_config(
 styles.aplicar_estilos()
 
 # 3. Inicializar Estado do Formulário (Form ID)
-# Essa é a mágica para limpar os campos sem erro.
 if "form_id" not in st.session_state:
     st.session_state.form_id = 0
 
@@ -234,14 +233,11 @@ with tab_pedidos:
         c_topo1, c_topo2 = st.columns([2, 1])
         
         with c_topo1:
-            # Índice Padrão
             try:
                 idx_def = lista_nomes.index("VENDA A CONSUMIDOR")
             except:
                 idx_def = 0
 
-            # NOTA: Adicionamos o ID do Formulário na KEY
-            # Isso garante que quando o ID mudar, o campo é recriado do zero
             key_cliente_manual = f"cliente_manual_{st.session_state.form_id}"
             key_cliente_select = f"cliente_select_{st.session_state.form_id}"
 
@@ -258,11 +254,9 @@ with tab_pedidos:
 
         # --- LINHA 2: DADOS FINANCEIROS E STATUS ---
         
-        # 1. Gatilho (Checkbox)
         key_check = f"check_nr_{st.session_state.form_id}"
         usar_nr = st.checkbox("Deseja informar o **Número do Pedido (NR)**?", value=False, key=key_check)
         
-        # 2. Definição Dinâmica das Colunas
         if usar_nr:
             cols = st.columns(3)
         else:
@@ -272,15 +266,12 @@ with tab_pedidos:
         key_status = f"status_{st.session_state.form_id}"
         key_nr = f"nr_input_{st.session_state.form_id}"
 
-        # Coluna 0: Pagamento
         with cols[0]:
             pagamento_inicial = st.selectbox("💳 Pagamento:", options=LISTA_PAGAMENTO, index=0, key=key_pagto)
         
-        # Coluna 1: Status
         with cols[1]:
             status_inicial = st.selectbox("📊 Status:", options=LISTA_STATUS, index=0, key=key_status)
             
-        # Coluna 2: NR Pedido
         if usar_nr:
             with cols[2]:
                 nr_pedido_input = st.text_input("🔢 Nº Pedido:", placeholder="Digite...", key=key_nr)
@@ -305,11 +296,7 @@ with tab_pedidos:
                     st.success(f"✅ Pedido Salvo! Status: **{status_inicial}**")
                     time.sleep(1)
                     
-                    # --- LIMPEZA DOS CAMPOS (RESET) ---
-                    # Incrementamos o ID do Formulário.
-                    # Isso força o Streamlit a criar novos widgets "virgens" na próxima rodada.
                     st.session_state.form_id += 1
-                    
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erro: {e}")
@@ -324,35 +311,51 @@ with tab_historico:
         if not df.empty:
             df.columns = [c.strip().upper() for c in df.columns] 
             
+            # --- ATUALIZADO: Identificação das colunas ---
+            col_id = "ID_PEDIDO" if "ID_PEDIDO" in df.columns else None
             col_status = "STATUS" if "STATUS" in df.columns else None
             col_pagto = "PAGAMENTO" if "PAGAMENTO" in df.columns else None
             col_nr = "NR PEDIDO" if "NR PEDIDO" in df.columns else None
 
             if col_status and col_pagto:
+                # Definimos quais colunas podem ser editadas
                 campos_editaveis = [col_status, col_pagto]
                 if col_nr:
                     campos_editaveis.append(col_nr)
                 
+                # Todas as outras são bloqueadas (incluindo o ID)
                 colunas_bloqueadas = [c for c in df.columns if c not in campos_editaveis]
+
+                # Configuração visual das colunas
+                config_colunas = {
+                    col_status: st.column_config.SelectboxColumn(
+                        "Status", width="medium",
+                        options=LISTA_STATUS, 
+                        required=True
+                    ),
+                    col_pagto: st.column_config.SelectboxColumn(
+                        "Pagamento", width="medium",
+                        options=LISTA_PAGAMENTO, 
+                        required=True
+                    )
+                }
+                
+                # Configuração especial para o ID (se existir)
+                if col_id:
+                     config_colunas[col_id] = st.column_config.NumberColumn(
+                        "# ID", width="small", format="%d"
+                     )
+
+                # Configuração para o NR PEDIDO (se existir)
+                if col_nr:
+                    config_colunas[col_nr] = st.column_config.TextColumn(
+                        "Nr Pedido", width="small",
+                        help="Edite o número do pedido aqui se necessário"
+                    )
 
                 df_editado = st.data_editor(
                     df, 
-                    column_config={
-                        col_status: st.column_config.SelectboxColumn(
-                            "Status", width="medium",
-                            options=LISTA_STATUS, 
-                            required=True
-                        ),
-                        col_pagto: st.column_config.SelectboxColumn(
-                            "Pagamento", width="medium",
-                            options=LISTA_PAGAMENTO, 
-                            required=True
-                        ),
-                        col_nr: st.column_config.TextColumn(
-                            "Nr Pedido", width="small",
-                            help="Edite o número do pedido aqui se necessário"
-                        )
-                    },
+                    column_config=config_colunas,
                     disabled=colunas_bloqueadas, 
                     num_rows="fixed",
                     use_container_width=True,
