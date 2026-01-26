@@ -1,4 +1,6 @@
 import streamlit as st
+# Importa a paleta de cores centralizada (que definiremos no styles.py)
+from ui.styles import PALETA_CORES 
 
 def render_login_header():
     """Renderiza o cabeçalho do formulário de login."""
@@ -92,27 +94,26 @@ def render_loader_action(mensagem="⏳ Processando solicitação..."):
     </style>
     """, unsafe_allow_html=True)
 
-# --- NOVO: ITEM DE HISTÓRICO (TIMELINE) ---
+# --- ITEM DE HISTÓRICO (TIMELINE) ATUALIZADO ---
 def render_history_item(id_ped, data, status, descricao, pagamento):
     """
     Renderiza um único item do histórico com formatação visual de timeline.
+    Agora consome as cores diretamente da PALETA_CORES centralizada.
     """
-    # Define cores baseadas no status
-    cor_status = "#8b949e" # Cinza padrão
-    icone = "⚪"
-    
     s = str(status).upper().strip()
+    
+    # Busca a cor na paleta centralizada (com fallback para cinza se não encontrar)
+    cor_status = PALETA_CORES["STATUS"].get(s, "#8b949e")
+    
+    # Ícones para facilitar a leitura rápida
+    icone = "⚪"
     if s == "ENTREGUE":
-        cor_status = "#238636" # Verde
         icone = "✅"
     elif s in ["PENDENTE", "GERADO", "ORÇAMENTO"]:
-        cor_status = "#d29922" # Amarelo/Laranja
         icone = "⏳"
     elif s in ["CANCELADO", "NÃO GERADO"]:
-        cor_status = "#da3633" # Vermelho
         icone = "❌"
     elif s == "RESERVADO":
-        cor_status = "#1f6feb" # Azul
         icone = "🔵"
 
     # CSS Inline para o cartão
