@@ -1,5 +1,6 @@
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from gspread.exceptions import APIError, WorksheetNotFound, GSpreadException
 import pandas as pd
 import streamlit as st
 import os
@@ -10,19 +11,16 @@ from datetime import datetime
 SHEET_ID = "1IenRiZI1TeqCFk4oB-r2WrqGsk0muUACsQA-kkvP4tc"
 
 # --- FUNÇÕES AUXILIARES ---
-def numero_para_coluna(n):
-    """Converte 1 -> A, 2 -> B, ... 27 -> AA"""
-    string = ""
-    while n > 0:
-        n, remainder = divmod(n - 1, 26)
-        string = chr(65 + remainder) + string
-    return string
+def limpar_texto(texto):
+    """
+    Padroniza textos: Remove espaços extras e converte para Maiúsculas.
+    """
+    if not texto:
+        return ""
+    return str(texto).strip().upper()
 
 def get_col_indices(ws):
-    """
-    Mapeia os nomes das colunas para seus índices numéricos (1-based).
-    Ex: {'ID_PEDIDO': 1, 'STATUS': 10, 'PAGAMENTO': 7}
-    """
+    """Mapeia nomes das colunas para índices."""
     cabecalhos = [c.upper().strip() for c in ws.row_values(1)]
     mapa = {}
     for idx, nome in enumerate(cabecalhos):
@@ -34,309 +32,250 @@ def get_col_indices(ws):
 def get_connection():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     
+    last_error = None
     for tentativa in range(3):
         try:
-            if os.path.exists("credentials.json"):
-                creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
-            else:
+            if "gcp_service_account" in st.secrets:
                 creds_dict = st.secrets["gcp_service_account"]
                 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+            elif os.path.exists("credentials.json"):
+                creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+            else:
+                raise FileNotFoundError("Credenciais não encontradas (secrets ou json).")
             
             gc = gspread.authorize(creds)
             return gc.open_by_key(SHEET_ID)
         except Exception as e:
+            last_error = e
             if "429" in str(e): 
                 time.sleep(2)
                 continue
             else:
-                # Retorna None silenciosamente para tentar reconexão depois
-                return None
-    return None
+                break
+    
+    raise ConnectionError(f"Falha na conexão com Google Sheets: {last_error}")
 
-# --- AUTENTICAÇÃO (LOGIN) ---
+# --- AUTENTICAÇÃO ---
 def autenticar_usuario(login_digitado, senha_digitada):
-    """
-    Verifica se o login e senha existem na aba 'Usuarios'
-    """
     sh = get_connection()
-    if not sh: return None
     try:
         ws = sh.worksheet("Usuarios")
-        usuarios = ws.get_all_records()
+    except WorksheetNotFound:
+        raise Exception("Aba 'Usuarios' não encontrada na planilha.")
         
-        for u in usuarios:
-            # Compara login (sem case sensitive) e senha (exata)
-            u_login = str(u.get('LOGIN', '')).strip().lower()
-            u_senha = str(u.get('SENHA', '')).strip()
-            
-            input_login = str(login_digitado).strip().lower()
-            input_senha = str(senha_digitada).strip()
-
-            if u_login == input_login and u_senha == input_senha:
-                return {
-                    "nome": u.get('NOME', 'Usuário'),
-                    "perfil": u.get('PERFIL', 'Operador')
-                }
-        return None
-    except Exception as e:
-        st.error(f"Erro ao acessar usuários: {e}")
-        return None
+    usuarios = ws.get_all_records()
+    for u in usuarios:
+        if str(u.get('LOGIN', '')).strip().lower() == str(login_digitado).strip().lower() and \
+           str(u.get('SENHA', '')).strip() == str(senha_digitada).strip():
+            return {"nome": u.get('NOME', 'Usuário'), "perfil": u.get('PERFIL', 'Operador')}
+    return None
 
 # --- LEITURAS ---
 @st.cache_data(ttl=300)
 def listar_clientes():
     sh = get_connection()
-    if not sh: return []
-    try:
-        ws = sh.worksheet("BaseClientes")
-        col_valores = ws.col_values(2) # Coluna B é o Nome
-        if len(col_valores) > 1:
-            nomes = sorted(list(set(col_valores[1:])))
-            return nomes
-        return []
-    except:
-        return []
+    ws = sh.worksheet("BaseClientes")
+    col_valores = ws.col_values(2)
+    if len(col_valores) > 1:
+        return sorted(list(set([limpar_texto(n) for n in col_valores[1:] if n])))
+    return []
 
 def buscar_pedidos_visualizacao():
     sh = get_connection()
-    if not sh: return pd.DataFrame()
-    try:
-        ws = sh.worksheet("Pedidos")
-        dados = ws.get_all_values()
-        
-        if len(dados) > 1:
+    ws = sh.worksheet("Pedidos")
+    dados = ws.get_all_values()
+    if len(dados) > 1:
+        # Tenta corrigir IDs se necessário, sem travar
+        try:
             corrigiu = corrigir_ids_faltantes(ws, dados)
             if corrigiu: dados = ws.get_all_values()
-            return pd.DataFrame(dados[1:], columns=dados[0])
-        return pd.DataFrame()
-    except Exception as e:
-        return pd.DataFrame()
+        except: pass
+        return pd.DataFrame(dados[1:], columns=dados[0])
+    return pd.DataFrame()
 
 def corrigir_ids_faltantes(ws, dados):
-    """Auto-preenche IDs se estiverem vazios na coluna A"""
-    try:
-        cabecalhos = [str(c).upper().strip() for c in dados[0]]
-        if "ID_PEDIDO" not in cabecalhos: return False
-
-        idx_id = cabecalhos.index("ID_PEDIDO")
-        coluna_ids = [linha[idx_id] for linha in dados[1:]]
-        
-        precisa_corrigir = False
-        for val in coluna_ids:
-            if not val or val == "" or val == "None":
-                precisa_corrigir = True
-                break
-        
-        if precisa_corrigir:
-            qtd_linhas = len(coluna_ids)
-            ids_corretos = [[str(i + 1)] for i in range(qtd_linhas)]
-            ws.update(f"A2:A{qtd_linhas + 1}", ids_corretos)
-            return True
-    except:
-        pass
+    cabecalhos = [str(c).upper().strip() for c in dados[0]]
+    if "ID_PEDIDO" not in cabecalhos: return False
+    idx_id = cabecalhos.index("ID_PEDIDO")
+    coluna_ids = [linha[idx_id] for linha in dados[1:]]
+    
+    if any(not val or val == "" for val in coluna_ids):
+        ids_corretos = [[str(i + 1)] for i in range(len(coluna_ids))]
+        ws.update(f"A2:A{len(coluna_ids) + 1}", ids_corretos)
+        return True
     return False
 
-# --- GRAVAÇÃO (CRIAÇÃO DE PEDIDO) ---
+# --- NOVA FUNÇÃO: PROCESSAR HISTÓRICO (OPÇÃO 5) ---
+def obter_resumo_historico(df_bruto, nome_cliente):
+    """
+    Recebe o DataFrame de pedidos e filtra os dados para a timeline do cliente.
+    Retorna uma lista de dicionários pronta para o componente visual.
+    """
+    if df_bruto.empty or not nome_cliente:
+        return []
+    
+    # Trabalhamos com uma cópia para não afetar o cache global
+    df = df_bruto.copy()
+    
+    # Padroniza colunas
+    df.columns = [str(c).strip().upper() for c in df.columns]
+    
+    # Verifica colunas mínimas necessárias
+    cols_necessarias = ["NOME CLIENTE", "STATUS", "ID_PEDIDO"]
+    if not all(c in df.columns for c in cols_necessarias):
+        return []
+
+    # Filtra pelo cliente (usando limpeza para garantir match)
+    nome_alvo = limpar_texto(nome_cliente)
+    df["_NOME_TEMP"] = df["NOME CLIENTE"].apply(limpar_texto)
+    df_cli = df[df["_NOME_TEMP"] == nome_alvo]
+    
+    if df_cli.empty:
+        return []
+
+    # Tenta ordenar por data de entrega (mais recente primeiro)
+    col_data = next((c for c in df_cli.columns if "ENTREGA" in c), None)
+    if col_data:
+        df_cli[col_data] = pd.to_datetime(df_cli[col_data], dayfirst=True, errors='coerce')
+        df_cli = df_cli.sort_values(col_data, ascending=False)
+
+    # Monta a estrutura para o componente visual
+    historico = []
+    for _, row in df_cli.iterrows():
+        # Formata data para string bonita
+        data_str = "-"
+        if col_data and pd.notnull(row[col_data]):
+            data_str = row[col_data].strftime("%d/%m/%Y")
+        
+        # Tenta achar a melhor coluna de descrição
+        desc = row.get("PEDIDO") or row.get("DESCRIÇÃO") or row.get("OBSERVAÇÃO") or "Sem descrição"
+        
+        item = {
+            "id": row.get("ID_PEDIDO", "?"),
+            "data": data_str,
+            "status": row.get("STATUS", "Desconhecido"),
+            "descricao": str(desc),
+            "pagamento": row.get("PAGAMENTO", "-")
+        }
+        historico.append(item)
+        
+    return historico
+
+# --- GRAVAÇÃO ---
 def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_escolhido, observacao="", nr_pedido="", usuario_logado="Sistema"):
-    """
-    Cria pedido novo.
-    Agora grava também a 'observacao' na coluna correta da aba Pedidos.
-    """
     sh = get_connection()
     get_metricas.clear()
     
-    ws_respostas = sh.worksheet("Respostas ao formulário 1")
-    ws_pedidos = sh.worksheet("Pedidos")
-    ws_logs = sh.worksheet("Historico_Logs")
-    
-    # 1. Salvar na aba de Respostas (Para ativar as fórmulas de Rota/Preço)
-    coluna_datas = ws_respostas.col_values(1)
-    proxima_linha = len(coluna_datas) + 1
-    if proxima_linha < 2: proxima_linha = 2
-    
-    nova_linha_respostas = [
-        datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-        nome,
-        descricao.strip(),
-        data_entrega.strftime("%d/%m/%Y")
-    ]
-    ws_respostas.update(f"A{proxima_linha}:D{proxima_linha}", [nova_linha_respostas])
-    
-    time.sleep(1) # Delay técnico para o Google Sheets processar
-    
-    # 2. Salvar na aba Pedidos (Campos Manuais: Status, Pagamento, Obs)
-    mapa_colunas = get_col_indices(ws_pedidos)
-    novo_id = proxima_linha - 1
-    
-    celulas_para_gravar = []
-    
-    def add_cell(nome_col, valor):
-        if nome_col in mapa_colunas:
-            col_idx = mapa_colunas[nome_col]
-            celulas_para_gravar.append(
-                gspread.Cell(proxima_linha, col_idx, str(valor))
-            )
-
-    add_cell("ID_PEDIDO", novo_id)
-    add_cell("PAGAMENTO", pagamento_escolhido)
-    add_cell("STATUS", status_escolhido)
-    
-    if nr_pedido:
-        add_cell("NR PEDIDO", nr_pedido)
-        
-    # Grava a Observação na coluna certa
-    possiveis_obs = ["OBSERVAÇÃO", "OBSERVACAO", "DESCRIÇÃO", "DESCRICAO"]
-    col_obs = next((c for c in possiveis_obs if c in mapa_colunas), None)
-    if col_obs and observacao:
-         add_cell(col_obs, observacao.strip())
-
-    if celulas_para_gravar:
-        ws_pedidos.update_cells(celulas_para_gravar)
-
-    # 3. Log de Auditoria
     try:
-        log_entry = [
-            datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-            str(novo_id),
-            str(usuario_logado),
-            "CRIAÇÃO",
-            "-",
-            f"Status: {status_escolhido} | Obs: {observacao[:30]}..."
-        ]
-        ws_logs.append_row(log_entry)
-    except:
-        pass
+        ws_respostas = sh.worksheet("Respostas ao formulário 1")
+        ws_pedidos = sh.worksheet("Pedidos")
+        ws_logs = sh.worksheet("Historico_Logs")
+    except WorksheetNotFound as e:
+        raise Exception(f"Aba obrigatória não encontrada: {e}")
 
-# --- ATUALIZAÇÃO (EDIÇÃO COM AUDITORIA) ---
+    nome_final = limpar_texto(nome)
+    obs_final = limpar_texto(observacao)
+    nr_final = limpar_texto(nr_pedido)
+    desc_final = descricao.strip() 
+
+    # 1. Respostas
+    coluna_datas = ws_respostas.col_values(1)
+    proxima_linha = len(coluna_datas) + 1 if len(coluna_datas) > 0 else 2
+    ws_respostas.update(f"A{proxima_linha}:D{proxima_linha}", [[
+        datetime.now().strftime("%d/%m/%Y %H:%M:%S"), nome_final, desc_final, data_entrega.strftime("%d/%m/%Y")
+    ]])
+    time.sleep(1) 
+    
+    # 2. Pedidos
+    mapa = get_col_indices(ws_pedidos)
+    novo_id = proxima_linha - 1
+    cells = []
+    if "ID_PEDIDO" in mapa: cells.append(gspread.Cell(proxima_linha, mapa["ID_PEDIDO"], str(novo_id)))
+    if "PAGAMENTO" in mapa: cells.append(gspread.Cell(proxima_linha, mapa["PAGAMENTO"], pagamento_escolhido))
+    if "STATUS" in mapa: cells.append(gspread.Cell(proxima_linha, mapa["STATUS"], status_escolhido))
+    if nr_final and "NR PEDIDO" in mapa: cells.append(gspread.Cell(proxima_linha, mapa["NR PEDIDO"], nr_final))
+    
+    col_obs = next((c for c in ["OBSERVAÇÃO", "DESCRIÇÃO"] if c in mapa), None)
+    if col_obs and obs_final: cells.append(gspread.Cell(proxima_linha, mapa[col_obs], obs_final))
+
+    if cells: ws_pedidos.update_cells(cells)
+
+    # 3. Log
+    try:
+        ws_logs.append_row([
+            datetime.now().strftime("%d/%m/%Y %H:%M:%S"), str(novo_id), str(usuario_logado),
+            "CRIAÇÃO", "-", f"Status: {status_escolhido}"
+        ])
+    except: pass
+
+# --- ATUALIZAÇÃO ---
 def atualizar_pedidos_editaveis(df_editado, usuario_logado="Sistema"):
-    """
-    Atualiza apenas as células alteradas, mantendo o resto intacto.
-    """
     sh = get_connection()
     ws_pedidos = sh.worksheet("Pedidos")
     ws_logs = sh.worksheet("Historico_Logs")
     
-    # Snapshot Antes
     dados_atuais = ws_pedidos.get_all_values()
     if len(dados_atuais) < 2: return
     
-    cabecalhos_sheet = [c.upper().strip() for c in dados_atuais[0]]
-    mapa_colunas = {nome: idx + 1 for idx, nome in enumerate(cabecalhos_sheet)}
+    cabecalhos = [c.upper().strip() for c in dados_atuais[0]]
+    mapa = {nome: idx + 1 for idx, nome in enumerate(cabecalhos)}
     
-    idx_id_sheet = mapa_colunas.get("ID_PEDIDO")
-    if not idx_id_sheet: return
+    idx_id = mapa.get("ID_PEDIDO")
+    if not idx_id: raise Exception("ID_PEDIDO ausente.")
     
-    snapshot_antes = {}
-    for i, linha in enumerate(dados_atuais[1:]): 
-        linha_safe = linha + [""] * (len(cabecalhos_sheet) - len(linha))
-        id_ped = str(linha_safe[idx_id_sheet - 1])
-        if id_ped:
-            snapshot_antes[id_ped] = {
-                header: linha_safe[h_idx] 
-                for h_idx, header in enumerate(cabecalhos_sheet)
-            }
-            snapshot_antes[id_ped]["__LINHA_SHEET__"] = i + 2
+    snapshot = {}
+    for i, row in enumerate(dados_atuais[1:]):
+        pid = str(row[idx_id-1])
+        if pid: snapshot[pid] = {"row": i+2, "data": row}
 
-    # Lista de colunas permitidas para edição
-    allowed_cols = {
-        "STATUS": ["STATUS"],
-        "PAGAMENTO": ["PAGAMENTO"],
-        "NR PEDIDO": ["NR PEDIDO", "NR_PEDIDO"],
-        "OBSERVAÇÃO": ["OBSERVAÇÃO", "OBSERVACAO"]
-    }
-    
-    df_editado.columns = [c.strip().upper() for c in df_editado.columns]
-    
-    celulas_para_atualizar = []
-    logs_para_registrar = []
+    cells = []
+    logs = []
     timestamp = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     
-    if "ID_PEDIDO" not in df_editado.columns: return
-        
-    for index, row in df_editado.iterrows():
-        id_pedido = str(row["ID_PEDIDO"])
-        dados_antigos = snapshot_antes.get(id_pedido)
-        
-        if dados_antigos:
-            linha_sheet = dados_antigos["__LINHA_SHEET__"]
-            
-            for chave, lista_sinonimos in allowed_cols.items():
-                col_df = next((c for c in df_editado.columns if c in lista_sinonimos), None)
-                nome_sheet = next((s for s in lista_sinonimos if s in mapa_colunas), None)
-                
-                if col_df and nome_sheet:
-                    col_idx_sheet = mapa_colunas[nome_sheet]
-                    
-                    novo_val = str(row[col_df]).strip() if row[col_df] is not None else ""
-                    antigo_val = str(dados_antigos.get(nome_sheet, "")).strip()
-                    
-                    if novo_val != antigo_val:
-                        celulas_para_atualizar.append(
-                            gspread.Cell(linha_sheet, col_idx_sheet, novo_val)
-                        )
-                        logs_para_registrar.append([
-                            timestamp, id_pedido, usuario_logado, chave, antigo_val, novo_val
-                        ])
-    
-    if logs_para_registrar:
-        ws_logs.append_rows(logs_para_registrar)
-    if celulas_para_atualizar:
-        ws_pedidos.update_cells(celulas_para_atualizar)
+    cols_check = {"STATUS": "STATUS", "PAGAMENTO": "PAGAMENTO", "NR PEDIDO": "NR PEDIDO", "OBSERVAÇÃO": "OBSERVAÇÃO"}
 
-# --- CLIENTES E MÉTRICAS ---
+    for _, row in df_editado.iterrows():
+        pid = str(row.get("ID_PEDIDO", ""))
+        antigo = snapshot.get(pid)
+        if antigo:
+            for col_df, col_sheet in cols_check.items():
+                if col_df in df_editado.columns and col_sheet in mapa:
+                    val_novo = limpar_texto(row[col_df]) if col_df not in ["STATUS", "PAGAMENTO"] else str(row[col_df]).strip().upper()
+                    
+                    # Busca valor antigo pelo índice da coluna
+                    idx_col_antiga = mapa[col_sheet] - 1
+                    val_antigo = ""
+                    if idx_col_antiga < len(antigo["data"]):
+                        val_antigo = limpar_texto(antigo["data"][idx_col_antiga])
+
+                    if val_novo != val_antigo:
+                        cells.append(gspread.Cell(antigo["row"], mapa[col_sheet], val_novo))
+                        logs.append([timestamp, pid, usuario_logado, col_sheet, val_antigo, val_novo])
+    
+    if logs: ws_logs.append_rows(logs)
+    if cells: ws_pedidos.update_cells(cells)
+
+# --- CLIENTES (Lógica Max ID + 1) ---
 def criar_novo_cliente(nome, cidade, documento=""):
-    """
-    Cria cliente novo. Agora aceita documento (CPF/CNPJ).
-    Grava em: [ID, NOME, CIDADE, DOCUMENTO]
-    """
     sh = get_connection()
     listar_clientes.clear()
     get_metricas.clear()
     
     ws = sh.worksheet("BaseClientes")
+    nome_final = limpar_texto(nome)
+    cidade_final = limpar_texto(cidade)
+    doc_final = limpar_texto(documento)
     
-    coluna_ids = ws.col_values(1)
-    novo_id = 1
+    # Lógica Max ID + 1 (Otimizada)
+    coluna_ids = ws.col_values(1)[1:] 
+    ids_nums = [int(x) for x in coluna_ids if str(x).strip().isdigit()]
+    novo_id = max(ids_nums) + 1 if ids_nums else 1
     
-    # LÓGICA ATUALIZADA AQUI -----------------------------------------
-    # Procura o menor ID disponível (preenche buracos)
-    if len(coluna_ids) > 1:
-        # Cria um conjunto (set) de IDs existentes para verificação rápida
-        ids_existentes = set()
-        for x in coluna_ids[1:]:
-            if str(x).strip().isdigit():
-                ids_existentes.add(int(x))
-        
-        # Começa do 1 e vai subindo até achar um número que NÃO está na lista
-        while novo_id in ids_existentes:
-            novo_id += 1
-    # ----------------------------------------------------------------
-    
-    # Adiciona a linha com o Documento na 4ª posição
-    ws.append_row([novo_id, nome.upper(), cidade.upper(), documento])
-    
-    # Ordena a planilha por Nome (Coluna B) - Mantido conforme seu pedido
-    try:
-        sh.batch_update({
-            "requests": [{
-                "sortRange": {
-                    "range": {"sheetId": ws.id, "startRowIndex": 1},
-                    "sortSpecs": [{"dimensionIndex": 1, "sortOrder": "ASCENDING"}]
-                }
-            }]
-        })
-    except:
-        pass
+    ws.append_row([novo_id, nome_final, cidade_final, doc_final])
 
 @st.cache_data(ttl=30)
 def get_metricas():
     sh = get_connection()
-    if not sh: return 0, 0
-    try:
-        ws_clientes = sh.worksheet("BaseClientes")
-        ws_pedidos = sh.worksheet("Pedidos")
-        qtd_clientes = len(ws_clientes.col_values(1)) - 1
-        qtd_pedidos = len(ws_pedidos.col_values(1)) - 1
-        return max(0, qtd_clientes), max(0, qtd_pedidos)
-    except:
-        return 0, 0
+    ws_cli = sh.worksheet("BaseClientes")
+    ws_ped = sh.worksheet("Pedidos")
+    return len(ws_cli.col_values(1))-1, len(ws_ped.col_values(1))-1

@@ -2,19 +2,33 @@ import streamlit as st
 
 def aplicar_estilos(perfil="Admin"):
     """
-    Aplica todo o design system do JT Pescados.
-    Centraliza cores, cards, botões e abas em um único lugar.
+    Aplica todo o design system do JT Pescados e injeta o CSS global.
+    
+    Retorna:
+        dict: Um dicionário com as cores ativas (principal, destaque, etc.)
+              para serem usadas na lógica do Python (ex: gráficos).
     """
     
-    # --- 1. PALETA DE CORES INTELIGENTE ---
+    # --- 1. DEFINIÇÃO DA PALETA DE CORES ---
+    # Centraliza a lógica de cores aqui. O app.py apenas consome.
     if perfil == "Operador":
-        cor_principal = "#004080"      # Azul Marinho
-        cor_destaque = "#00BFFF"       # Azul Ciano
-        bg_card_sutil = "rgba(0, 191, 255, 0.03)" 
+        cores = {
+            "principal": "#004080",       # Azul Marinho
+            "destaque": "#00BFFF",        # Azul Ciano
+            "bg_card_sutil": "rgba(0, 191, 255, 0.03)"
+        }
     else:
-        cor_principal = "#B22222"      # Vermelho JT
-        cor_destaque = "#FFD700"       # Dourado
-        bg_card_sutil = "rgba(255, 0, 0, 0.03)"   
+        # Padrão Admin
+        cores = {
+            "principal": "#B22222",       # Vermelho JT
+            "destaque": "#FFD700",        # Dourado
+            "bg_card_sutil": "rgba(255, 0, 0, 0.03)"
+        }
+
+    # Variáveis locais para facilitar a injeção no f-string abaixo
+    c_prin = cores["principal"]
+    c_dest = cores["destaque"]
+    c_bg   = cores["bg_card_sutil"]
 
     # --- 2. INJEÇÃO DE ESTILOS CSS ---
     st.markdown(f"""
@@ -36,7 +50,7 @@ def aplicar_estilos(perfil="Admin"):
         }}
         .user-card:hover {{
             transform: scale(1.02);
-            border-color: {cor_destaque};
+            border-color: {c_dest};
         }}
         .user-name {{
             font-size: 18px;
@@ -56,7 +70,7 @@ def aplicar_estilos(perfil="Admin"):
         .metric-container {{
             background-color: #161b22;
             border: 1px solid #30363d;
-            border-left: 5px solid {cor_principal};
+            border-left: 5px solid {c_prin};
             border-radius: 10px;
             padding: 20px;
             text-align: left;
@@ -97,7 +111,7 @@ def aplicar_estilos(perfil="Admin"):
         /* --- CORES DINÂMICAS PARA SAÚDE DA OPERAÇÃO --- */
         .saude-baixa {{ border-left: 5px solid #ff4b4b !important; }} /* Vermelho Erro */
         .saude-media {{ border-left: 5px solid #ffeb3b !important; }} /* Amarelo Atenção */
-        .saude-alta {{ border-left: 5px solid #28a745 !important; }}  /* Verde Sucesso */
+        .saude-alta  {{ border-left: 5px solid #28a745 !important; }} /* Verde Sucesso */
 
         /* --- ESTILO DAS ABAS (TABS) --- */
         .stTabs [data-baseweb="tab-list"] {{ 
@@ -116,8 +130,8 @@ def aplicar_estilos(perfil="Admin"):
             background-color: #21262d;
         }}
         .stTabs [aria-selected="true"] {{
-            background-color: {cor_principal}20 !important;
-            border-bottom: 3px solid {cor_principal} !important;
+            background-color: {c_prin}20 !important;
+            border-bottom: 3px solid {c_prin} !important;
             color: white !important;
         }}
 
@@ -133,7 +147,7 @@ def aplicar_estilos(perfil="Admin"):
         .stButton>button, .stLinkButton>a {{
             width: 100%;
             border-radius: 8px;
-            background-color: {cor_principal};
+            background-color: {c_prin};
             color: white !important;
             border: none;
             font-weight: bold;
@@ -150,8 +164,8 @@ def aplicar_estilos(perfil="Admin"):
 
         /* --- FORMULÁRIOS --- */
         [data-testid="stForm"] {{
-            background-color: {bg_card_sutil};
-            border: 1px solid {cor_principal};
+            background-color: {c_bg};
+            border: 1px solid {c_prin};
             border-radius: 15px;
             padding: 25px;
         }}
@@ -164,3 +178,6 @@ def aplicar_estilos(perfil="Admin"):
 
     </style>
     """, unsafe_allow_html=True)
+    
+    # Retorna o dicionário para ser usado no app.py (ex: cor_principal = cores['principal'])
+    return cores
