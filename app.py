@@ -29,18 +29,45 @@ def inicializar_sessao():
         st.session_state.form_id = 0
     if "processando_envio" not in st.session_state:
         st.session_state.processando_envio = False
+    
+    # NOVAS VARIÁVEIS PARA O SALMÃO (ESTACA ZERO)
+    if "salmao_df" not in st.session_state:
+        st.session_state.salmao_df = pd.DataFrame()
+    if "salmao_range_str" not in st.session_state:
+        st.session_state.salmao_range_str = ""
 
 # Esta chamada deve ficar no topo absoluto do script
 inicializar_sessao()
+
+# --- MODAL DE DESMEMBRAMENTO ---
+@st.dialog("✂️ Desmembrar Tag (Fracionamento)")
+def modal_desmembramento(tag_id, peso_atual):
+    st.caption(f"Adicione uma nova unidade para a Tag {tag_id}.")
+    
+    letra, peso_unidade, cliente, status = components.render_split_form(tag_id, peso_atual)
+    
+    if st.button("Confirmar Unidade", type="primary", use_container_width=True):
+        if not letra or not cliente:
+            st.warning("Preencha Letra e Cliente.")
+            return
+        if peso_unidade <= 0:
+            st.warning("O peso deve ser maior que zero.")
+            return
+
+        sucesso = db.registrar_subtag(
+            tag_id, letra, cliente, peso_unidade, status, st.session_state.usuario_nome
+        )
+        if sucesso:
+            st.success(f"Unidade {letra} registrada com sucesso!")
+            time.sleep(1)
+            st.rerun()
 
 # --- CONSTANTES E ESTILOS ---
 LISTA_STATUS = ["GERADO", "PENDENTE", "NÃO GERADO", "CANCELADO", "ENTREGUE", "ORÇAMENTO", "RESERVADO"]
 LISTA_PAGAMENTO = ["A COMBINAR", "PIX", "BOLETO", "CARTÃO"]
 
-# Centralização de Cores (Do ui/styles.py)
 CORES_STATUS = styles.PALETA_CORES["STATUS"]
 
-# Aplica Estilo Visual baseado no perfil
 perfil_atual = st.session_state.usuario_perfil if st.session_state.logado else "Admin"
 cores_tema = styles.aplicar_estilos(perfil=perfil_atual)
 cor_principal = cores_tema["principal"]
@@ -48,10 +75,6 @@ cor_principal = cores_tema["principal"]
 # --- FUNÇÕES DE CACHE INTELIGENTE ---
 @st.cache_data(show_spinner=False)
 def carregar_clientes_cache(versao_hash):
-    """
-    Busca clientes. O parâmetro 'versao_hash' força o recarregamento 
-    apenas se a planilha tiver sido modificada no Google Drive.
-    """
     try:
         conn = db.get_connection()
         ws = conn.worksheet("BaseClientes")
@@ -69,7 +92,6 @@ def carregar_clientes_cache(versao_hash):
 
 @st.cache_data(show_spinner=False)
 def carregar_pedidos_cache(versao_hash):
-    """Busca pedidos usando o hash de versão para controle de cache."""
     try:
         return db.buscar_pedidos_visualizacao()
     except Exception as e:
@@ -108,26 +130,19 @@ def tela_login():
 if not st.session_state.logado:
     tela_login()
 else:
-    # --- SINCRONIZAÇÃO INTELIGENTE ---
-    # Verifica a versão da planilha no Google Drive
     try:
         hash_dados = db.obter_versao_planilha()
     except:
-        hash_dados = time.time() # Fallback
+        hash_dados = time.time()
 
     NOME_USER = st.session_state.usuario_nome
     PERFIL = st.session_state.usuario_perfil
 
-    # --- SIDEBAR ---
     with st.sidebar:
         st.image("assets/imagem da empresa.jpg", use_container_width=True)
         st.markdown("<br>", unsafe_allow_html=True)
-        
         components.render_user_card(NOME_USER, PERFIL)
-        
-        # Feedback discreto de Cache
         st.caption("🔄 Sincronizado")
-        
         st.markdown("---")
         
         if PERFIL == "Admin":
@@ -139,31 +154,26 @@ else:
             st.session_state.logado = False
             st.rerun()
 
-    # --- CABEÇALHO ---
     st.title("📦 Portal de Pedidos Digital")
     
-    # Métricas com Cache Inteligente
     try:
         qtd_cli, qtd_ped = db.get_metricas(_hash_versao=hash_dados)
     except Exception:
         qtd_cli, qtd_ped = "-", "-"
     
     m1, m2, m3 = st.columns(3)
-    with m1:
-        components.render_metric_card("👥 Total Clientes", qtd_cli, "#58a6ff")
-    with m2:
-        components.render_metric_card("📦 Pedidos Totais", qtd_ped, "#f1e05a")
-    with m3:
-        components.render_metric_card("👤 Usuário Logado", NOME_USER, "#238636")
+    with m1: components.render_metric_card("👥 Total Clientes", qtd_cli, "#58a6ff")
+    with m2: components.render_metric_card("📦 Pedidos Totais", qtd_ped, "#f1e05a")
+    with m3: components.render_metric_card("👤 Usuário Logado", NOME_USER, "#238636")
 
     # --- NAVEGAÇÃO ---
-    aba_dash = aba_novo = aba_gestao = aba_clientes = None
+    aba_dash = aba_novo = aba_gestao = aba_clientes = aba_salmao = None
 
     if PERFIL == "Admin":
-        opcoes = ["📈 Dashboard", "📝 Novo Pedido", "👁️ Gerenciar", "➕ Clientes"]
+        opcoes = ["📈 Dashboard", "📝 Novo Pedido", "👁️ Gerenciar", "🐟 Recebimento de Salmão", "➕ Clientes"]
         default_idx = 0
     else:
-        opcoes = ["🚚 Operações", "📈 Indicadores"]
+        opcoes = ["🚚 Operações", "🐟 Recebimento de Salmão", "📈 Indicadores"]
         default_idx = 0
 
     escolha_nav = st.segmented_control(
@@ -176,14 +186,123 @@ else:
     
     st.markdown("---")
 
-    if escolha_nav in ["📈 Dashboard", "📈 Indicadores"]:
-        aba_dash = st.container()
-    elif escolha_nav == "📝 Novo Pedido":
-        aba_novo = st.container()
-    elif escolha_nav in ["👁️ Gerenciar", "🚚 Operações"]:
-        aba_gestao = st.container()
-    elif escolha_nav == "➕ Clientes":
-        aba_clientes = st.container()
+    if escolha_nav in ["📈 Dashboard", "📈 Indicadores"]: aba_dash = st.container()
+    elif escolha_nav == "📝 Novo Pedido": aba_novo = st.container()
+    elif escolha_nav in ["👁️ Gerenciar", "🚚 Operações"]: aba_gestao = st.container()
+    elif escolha_nav == "➕ Clientes": aba_clientes = st.container()
+    elif escolha_nav == "🐟 Recebimento de Salmão": aba_salmao = st.container()
+
+    # =========================================================================
+    # ABA: RECEBIMENTO DE SALMÃO (NOVA E BLINDADA)
+    # =========================================================================
+    if aba_salmao:
+        with aba_salmao:
+            st.subheader("🐟 Recebimento de Salmão")
+            st.info("ℹ️ Para evitar lentidão, o sistema carrega os dados apenas sob demanda.")
+
+            # --- PAINEL DE COMANDO (ESTACA ZERO) ---
+            with st.container(border=True):
+                c_in, c_fim, c_btn = st.columns([1, 1, 2], vertical_alignment="bottom")
+                
+                with c_in:
+                    tag_start = st.number_input("Tag Inicial", min_value=1, value=1, step=1)
+                with c_fim:
+                    tag_end = st.number_input("Tag Final", min_value=1, value=50, step=1)
+                
+                with c_btn:
+                    carregar = st.button("🔍 Carregar Intervalo", type="primary", use_container_width=True)
+
+            # --- LÓGICA DE CARREGAMENTO SEGURO ---
+            if carregar:
+                qtd_solicitada = tag_end - tag_start + 1
+                
+                # 1. TRAVA DE SEGURANÇA
+                if qtd_solicitada > 50:
+                    st.error(f"⚠️ Atenção: Você tentou carregar {qtd_solicitada} tags.")
+                    st.warning("⛔ O limite máximo é de 50 tags por vez para evitar travamentos.")
+                    st.session_state.salmao_df = pd.DataFrame() # Limpa para garantir
+                elif tag_end < tag_start:
+                    st.error("Erro: A Tag Final deve ser maior que a Inicial.")
+                else:
+                    # 2. CARREGAMENTO PERMITIDO
+                    with st.spinner(f"Buscando Tags de {tag_start} a {tag_end}..."):
+                        df_res = db.get_estoque_filtrado(tag_start, tag_end)
+                        st.session_state.salmao_df = df_res
+                        st.session_state.salmao_range_str = f"Tags {tag_start} a {tag_end}"
+
+            # --- VISUALIZAÇÃO DA TABELA ---
+            if not st.session_state.salmao_df.empty:
+                st.markdown(f"### 📋 Editando: {st.session_state.salmao_range_str}")
+                
+                df_view = st.session_state.salmao_df
+                
+                if PERFIL == "Admin":
+                    # Admin apenas vê
+                    st.dataframe(df_view, use_container_width=True, hide_index=True)
+                else:
+                    # Operador EDITA
+                    
+                    # 1. Adiciona coluna de Checkbox para seleção manual (Compatível com versões antigas)
+                    if "Selecionar" not in df_view.columns:
+                        df_view.insert(0, "Selecionar", False)
+
+                    cfg_colunas = {
+                        "Selecionar": st.column_config.CheckboxColumn("✅", width="small"),
+                        "Tag": st.column_config.NumberColumn("Tag", disabled=True, format="%d"),
+                        "Calibre": st.column_config.SelectboxColumn("Calibre", options=["8/10", "10/12", "12/14", "14/16"]),
+                        "Status": st.column_config.SelectboxColumn("Status", options=["Livre", "Reservado", "Orçamento", "Gerado", "Aberto"]),
+                        "Peso": st.column_config.NumberColumn("Peso (kg)", format="%.2f"),
+                        "Validade": st.column_config.TextColumn("Validade"),
+                        "Cliente": st.column_config.TextColumn("Cliente Destino")
+                    }
+
+                    # Removemos o 'selection_mode' que estava dando erro
+                    tabela_editada = st.data_editor(
+                        df_view,
+                        key="editor_salmao_safe",
+                        use_container_width=True,
+                        height=500,
+                        hide_index=True,
+                        column_config=cfg_colunas
+                    )
+                    
+                    c_save, c_split = st.columns([1, 1])
+                    
+                    with c_save:
+                        if st.button("💾 Salvar Alterações", type="primary"):
+                            with st.spinner("Gravando..."):
+                                # Removemos a coluna 'Selecionar' antes de salvar no banco
+                                df_para_salvar = tabela_editada.drop(columns=["Selecionar"], errors="ignore")
+                                n = db.salvar_alteracoes_estoque(df_para_salvar, NOME_USER)
+                                if n > 0:
+                                    st.success(f"✅ {n} linhas atualizadas!")
+                                    st.session_state.salmao_df = pd.DataFrame() # Força recarregar limpo
+                                    time.sleep(1)
+                                    st.rerun()
+                                else:
+                                    st.info("Nenhuma alteração detectada.")
+
+                    with c_split:
+                        # Nova Lógica de Desmembramento (Via Checkbox)
+                        # Filtra apenas as linhas onde o checkbox foi marcado
+                        linhas_selecionadas = tabela_editada[tabela_editada["Selecionar"] == True]
+                        
+                        if not linhas_selecionadas.empty:
+                            # Pega a primeira linha selecionada
+                            row_data = linhas_selecionadas.iloc[0]
+                            status_atual = str(row_data.get("Status", "")).upper()
+                            
+                            if "ABERTO" in status_atual:
+                                if st.button(f"✂️ Desmembrar Tag {row_data['Tag']}", type="secondary"):
+                                    modal_desmembramento(row_data['Tag'], row_data['Peso'])
+                            else:
+                                st.caption("⚠️ Para desmembrar, mude o Status para 'Aberto', Salve, e depois selecione.")
+                        else:
+                            st.caption("👆 Marque a caixinha ✅ para selecionar um item.")
+                            
+            else:
+                if st.session_state.salmao_range_str:
+                    st.warning("Nenhum dado encontrado neste intervalo.")
 
     # =========================================================================
     # ABA: DASHBOARD
@@ -302,7 +421,6 @@ else:
         with aba_novo:
             st.markdown("### 📝 Novo Pedido")
             
-            # Smart Cache
             df_clientes_completo = carregar_clientes_cache(hash_dados)
             lista_nomes = ["Consumidor Final"]
 
@@ -342,7 +460,6 @@ else:
                     else:
                         st.success(f"📍 **Cidade:** {cidade_cli}  |  🚚 **Rota:** {rota_cli} (Entrega Externa)")
 
-                    # MODAL HISTÓRICO
                     @st.dialog("📜 Histórico Completo")
                     def modal_historico(cliente_nome):
                         st.markdown(f"### 👤 {cliente_nome}")
@@ -416,26 +533,17 @@ else:
                 c_btn1, c_btn2 = st.columns([3, 1])
                 
                 with c_btn1:
-                    # ESTADO A: PROCESSANDO (Botão some, entra o Loading)
                     if st.session_state.processando_envio:
                         components.render_loader_action("🚀 Enviando pedido para o Google Sheets...")
-                        
                         try:
-                            # Ação de Gravação
                             db.salvar_pedido(cli, desc, dt, pg, stt, nr_pedido=nr_ped, usuario_logado=NOME_USER)
-                            
-                            # Limpeza de Cache Forçada
                             carregar_pedidos_cache.clear()
                             carregar_clientes_cache.clear()
-                            
                             st.toast(f"✅ Pedido para **{cli}** salvo com sucesso!", icon="🎉")
                             time.sleep(1.5)
-                            
-                            # Reset do Estado
                             st.session_state.processando_envio = False
                             st.session_state.form_id += 1
                             st.rerun()
-                            
                         except APIError as e:
                             components.render_error_details("Limite do Google (429). Aguarde e tente de novo.", e)
                             st.session_state.processando_envio = False 
@@ -446,7 +554,6 @@ else:
                             components.render_error_details("Erro inesperado ao gravar.", e)
                             st.session_state.processando_envio = False
 
-                    # ESTADO B: AGUARDANDO (Botão Normal Disponível)
                     else:
                         def iniciar_envio():
                             st.session_state.processando_envio = True
@@ -496,7 +603,6 @@ else:
                     "DIA DA ENTREGA": st.column_config.TextColumn("📅 Entrega")
                 }
 
-                # Estilização (apenas para Admin/Visualização)
                 df_estilizado = df_display.style.map(
                     lambda x: f'background-color: {CORES_STATUS.get(x, "")}; color: {"white" if x in ["NÃO GERADO", "RESERVADO", "ENTREGUE"] else "black"}', 
                     subset=['STATUS']
@@ -505,7 +611,6 @@ else:
                 if PERFIL == "Admin":
                     st.dataframe(df_estilizado, use_container_width=True, height=600, hide_index=True)
                 else:
-                    # Para operador, usamos a coluna visual extra (Pulo do Gato) se desejar, ou tabela simples
                     df_editado = st.data_editor(
                         df_display, column_config=cfg_visual,
                         use_container_width=True, height=600, hide_index=True, key="tabela_operador"

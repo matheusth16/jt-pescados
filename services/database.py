@@ -65,11 +65,8 @@ def obter_versao_planilha():
     """
     try:
         sh = get_connection()
-        # lastUpdateTime retorna uma string ISO (ex: '2023-10-27T10:00:00.000Z')
-        # Isso serve perfeitamente como token de versão.
         return sh.lastUpdateTime
     except Exception:
-        # Fallback: Se falhar (ex: API lenta), retorna o minuto atual para renovar a cada minuto
         return time.time()
 
 # --- AUTENTICAÇÃO ---
@@ -88,7 +85,6 @@ def autenticar_usuario(login_digitado, senha_digitada):
     return None
 
 # --- LEITURAS COM CACHE INTELIGENTE ---
-# Removemos o TTL fixo e usamos o argumento _hash_versao como gatilho
 @st.cache_data
 def listar_clientes(_hash_versao=None):
     sh = get_connection()
@@ -98,13 +94,11 @@ def listar_clientes(_hash_versao=None):
         return sorted(list(set([limpar_texto(n) for n in col_valores[1:] if n])))
     return []
 
-# Esta função não tem cache aqui pois o cache é controlado no app.py (dataframe completo)
 def buscar_pedidos_visualizacao():
     sh = get_connection()
     ws = sh.worksheet("Pedidos")
     dados = ws.get_all_values()
     if len(dados) > 1:
-        # Tenta corrigir IDs se necessário, sem travar
         try:
             corrigiu = corrigir_ids_faltantes(ws, dados)
             if corrigiu: dados = ws.get_all_values()
@@ -126,9 +120,6 @@ def corrigir_ids_faltantes(ws, dados):
 
 # --- HISTÓRICO ---
 def obter_resumo_historico(df_bruto, nome_cliente):
-    """
-    Recebe o DataFrame de pedidos e filtra os dados para a timeline do cliente.
-    """
     if df_bruto.empty or not nome_cliente:
         return []
     
@@ -173,7 +164,6 @@ def obter_resumo_historico(df_bruto, nome_cliente):
 # --- GRAVAÇÃO ---
 def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_escolhido, observacao="", nr_pedido="", usuario_logado="Sistema"):
     sh = get_connection()
-    # Limpamos o cache local para garantir que a próxima leitura pegue a mudança
     get_metricas.clear()
     listar_clientes.clear()
     
@@ -189,9 +179,8 @@ def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_esc
     nr_final = limpar_texto(nr_pedido)
     desc_final = descricao.strip() 
 
-    # 1. Respostas (Data Agora com Fuso BR)
+    # 1. Respostas
     data_log = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
-    
     coluna_datas = ws_respostas.col_values(1)
     proxima_linha = len(coluna_datas) + 1 if len(coluna_datas) > 0 else 2
     ws_respostas.update(f"A{proxima_linha}:D{proxima_linha}", [[
@@ -213,7 +202,7 @@ def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_esc
 
     if cells: ws_pedidos.update_cells(cells)
 
-    # 3. Log (Data Agora com Fuso BR)
+    # 3. Log
     try:
         ws_logs.append_row([
             data_log, str(novo_id), str(usuario_logado),
@@ -243,7 +232,6 @@ def atualizar_pedidos_editaveis(df_editado, usuario_logado="Sistema"):
 
     cells = []
     logs = []
-    # Data Agora com Fuso BR
     timestamp = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
     
     cols_check = {"STATUS": "STATUS", "PAGAMENTO": "PAGAMENTO", "NR PEDIDO": "NR PEDIDO", "OBSERVAÇÃO": "OBSERVAÇÃO"}
@@ -285,10 +273,94 @@ def criar_novo_cliente(nome, cidade, documento=""):
     
     ws.append_row([novo_id, nome_final, cidade_final, doc_final])
 
-# Cache Inteligente também nas Métricas
 @st.cache_data
 def get_metricas(_hash_versao=None):
     sh = get_connection()
     ws_cli = sh.worksheet("BaseClientes")
     ws_ped = sh.worksheet("Pedidos")
     return len(ws_cli.col_values(1))-1, len(ws_ped.col_values(1))-1
+
+# ==============================================================================
+# --- MÓDULO RECEBIMENTO SALMÃO (NOVO) ---
+# ==============================================================================
+
+@st.cache_data(ttl=30, show_spinner=False)
+def get_estoque_filtrado(tag_inicio, tag_fim):
+    """
+    Busca todas as tags (cacheado) mas retorna APENAS o intervalo solicitado.
+    Isso evita que o Frontend do Streamlit trave com 560 linhas editáveis.
+    """
+    sh = get_connection()
+    try:
+        ws = sh.worksheet("Recebimento_Salmão")
+        dados = ws.get_all_records()
+        df = pd.DataFrame(dados)
+        
+        if not df.empty and "Tag" in df.columns:
+            # Garante que Tag é numérico para filtrar
+            df["Tag"] = pd.to_numeric(df["Tag"], errors='coerce').fillna(0).astype(int)
+            
+            # Tratamento de Peso
+            if "Peso" in df.columns:
+                df["Peso"] = df["Peso"].astype(str).str.replace(",", ".")
+                df["Peso"] = pd.to_numeric(df["Peso"], errors='coerce').fillna(0.0)
+            
+            # FILTRAGEM DO INTERVALO
+            df_filtrado = df[(df["Tag"] >= tag_inicio) & (df["Tag"] <= tag_fim)]
+            return df_filtrado.sort_values("Tag")
+            
+        return pd.DataFrame()
+    except WorksheetNotFound:
+        return pd.DataFrame()
+
+def salvar_alteracoes_estoque(df_novo, usuario_logado):
+    """
+    Salva as edições feitas no intervalo filtrado.
+    """
+    sh = get_connection()
+    get_estoque_filtrado.clear() # Limpa cache para ver a mudança
+    
+    ws = sh.worksheet("Recebimento_Salmão")
+    ws_logs = sh.worksheet("Historico_Logs")
+    
+    mapa_colunas = get_col_indices(ws)
+    colunas_editaveis = ["Calibre", "Peso", "Cliente", "Fornecedor", "Validade", "Status"]
+    
+    updates = []
+    logs = []
+    timestamp = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
+    
+    # Assumimos que Tag N está na Linha N+1 (Tag 1 = Row 2)
+    # Pois a planilha é fixa de 1 a 560
+    for idx, row_nova in df_novo.iterrows():
+        tag_id = int(row_nova["Tag"])
+        excel_row = tag_id + 1 
+        
+        for col in colunas_editaveis:
+            val_novo = str(row_nova[col]).strip()
+            if col == "Status": val_novo = val_novo.capitalize()
+            
+            col_idx = mapa_colunas.get(col.upper())
+            if col_idx:
+                updates.append(gspread.Cell(excel_row, col_idx, val_novo))
+
+    if updates:
+        ws.update_cells(updates)
+        # Log simplificado
+        ws_logs.append_row([timestamp, "LOTE", usuario_logado, "EDICAO_ESTOQUE", "-", f"Atualizou {len(updates)} células"])
+        return len(updates)
+    return 0
+
+def registrar_subtag(id_pai, letra, cliente, peso, status, usuario_logado):
+    """Insere nova subtag na aba Recebimento_SubTags."""
+    sh = get_connection()
+    
+    ws = sh.worksheet("Recebimento_SubTags")
+    ws_logs = sh.worksheet("Historico_Logs")
+    
+    nova_linha = [int(id_pai), limpar_texto(letra), limpar_texto(cliente), float(peso), status.capitalize()]
+    ws.append_row(nova_linha)
+    
+    timestamp = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
+    ws_logs.append_row([timestamp, f"TAG-{id_pai}", usuario_logado, "DESMEMBRAMENTO", "-", f"Letra {letra}: {peso}kg"])
+    return True

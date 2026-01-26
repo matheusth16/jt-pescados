@@ -136,3 +136,22 @@ def render_history_item(id_ped, data, status, descricao, pagamento):
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+# --- NOVO: FORMULÁRIO DE DESMEMBRAMENTO ---
+def render_split_form(tag_pai, peso_pai):
+    """
+    Renderiza os campos dentro do Modal de Desmembramento.
+    """
+    st.markdown(f"**Tag Origem:** `{tag_pai}` &nbsp;|&nbsp; **Peso Total:** `{peso_pai} kg`")
+    st.markdown("---")
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        letra = st.text_input("Letra / ID da Parte", placeholder="Ex: A, B, P1...")
+    with c2:
+        peso_unidade = st.number_input("Peso desta Parte (kg)", min_value=0.0, max_value=float(peso_pai) if peso_pai else 100.0, format="%.3f")
+    
+    nome_cliente = st.text_input("Cliente Destino", placeholder="Para quem vai este pedaço?")
+    status_unidade = st.selectbox("Status Inicial", ["GERADO", "RESERVADO", "ORÇAMENTO", "LIVRE"])
+    
+    return letra, peso_unidade, nome_cliente, status_unidade
