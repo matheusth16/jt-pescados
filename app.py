@@ -564,3 +564,5 @@ else:
                     }, hide_index=True, use_container_width=True, height=400)
             else:
                 st.info("Nenhum cliente encontrado na base de dados (ou falha no carregamento).")
+                
+# FIM DO ARQUIVO app.py
