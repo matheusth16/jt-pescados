@@ -241,13 +241,7 @@ else:
                     st.dataframe(df_view, use_container_width=True, hide_index=True)
                 else:
                     # Operador EDITA
-                    
-                    # 1. Adiciona coluna de Checkbox para seleção manual (Compatível com versões antigas)
-                    if "Selecionar" not in df_view.columns:
-                        df_view.insert(0, "Selecionar", False)
-
                     cfg_colunas = {
-                        "Selecionar": st.column_config.CheckboxColumn("✅", width="small"),
                         "Tag": st.column_config.NumberColumn("Tag", disabled=True, format="%d"),
                         "Calibre": st.column_config.SelectboxColumn("Calibre", options=["8/10", "10/12", "12/14", "14/16"]),
                         "Status": st.column_config.SelectboxColumn("Status", options=["Livre", "Reservado", "Orçamento", "Gerado", "Aberto"]),
@@ -256,14 +250,14 @@ else:
                         "Cliente": st.column_config.TextColumn("Cliente Destino")
                     }
 
-                    # Removemos o 'selection_mode' que estava dando erro
                     tabela_editada = st.data_editor(
                         df_view,
                         key="editor_salmao_safe",
                         use_container_width=True,
                         height=500,
                         hide_index=True,
-                        column_config=cfg_colunas
+                        column_config=cfg_colunas,
+                        selection_mode="single-row" # Habilita seleção para o botão de corte
                     )
                     
                     c_save, c_split = st.columns([1, 1])
@@ -271,35 +265,32 @@ else:
                     with c_save:
                         if st.button("💾 Salvar Alterações", type="primary"):
                             with st.spinner("Gravando..."):
-                                # Removemos a coluna 'Selecionar' antes de salvar no banco
-                                df_para_salvar = tabela_editada.drop(columns=["Selecionar"], errors="ignore")
-                                n = db.salvar_alteracoes_estoque(df_para_salvar, NOME_USER)
+                                n = db.salvar_alteracoes_estoque(tabela_editada, NOME_USER)
                                 if n > 0:
                                     st.success(f"✅ {n} linhas atualizadas!")
-                                    st.session_state.salmao_df = pd.DataFrame() # Força recarregar limpo
+                                    # Atualiza o cache local
+                                    st.session_state.salmao_df = tabela_editada
                                     time.sleep(1)
                                     st.rerun()
                                 else:
                                     st.info("Nenhuma alteração detectada.")
 
                     with c_split:
-                        # Nova Lógica de Desmembramento (Via Checkbox)
-                        # Filtra apenas as linhas onde o checkbox foi marcado
-                        linhas_selecionadas = tabela_editada[tabela_editada["Selecionar"] == True]
-                        
-                        if not linhas_selecionadas.empty:
-                            # Pega a primeira linha selecionada
-                            row_data = linhas_selecionadas.iloc[0]
+                        # Lógica do Desmembramento
+                        sel = st.session_state["editor_salmao_safe"].get("selection", {}).get("rows", [])
+                        if sel:
+                            idx_row = sel[0]
+                            row_data = tabela_editada.iloc[idx_row]
                             status_atual = str(row_data.get("Status", "")).upper()
                             
                             if "ABERTO" in status_atual:
                                 if st.button(f"✂️ Desmembrar Tag {row_data['Tag']}", type="secondary"):
                                     modal_desmembramento(row_data['Tag'], row_data['Peso'])
                             else:
-                                st.caption("⚠️ Para desmembrar, mude o Status para 'Aberto', Salve, e depois selecione.")
+                                st.caption("Para desmembrar, mude o Status para 'Aberto' e Salve.")
                         else:
-                            st.caption("👆 Marque a caixinha ✅ para selecionar um item.")
-                            
+                            st.caption("👆 Selecione uma linha com status ABERTO para fracionar.")
+
             else:
                 if st.session_state.salmao_range_str:
                     st.warning("Nenhum dado encontrado neste intervalo.")

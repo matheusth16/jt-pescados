@@ -8,13 +8,9 @@ PALETA_CORES = {
         "GERADO": "#ff8500",       # Laranja
         "NÃO GERADO": "#b10202",   # Vermelho Escuro
         "CANCELADO": "#ffa0a0",    # Vermelho Claro
-        "ENTREGUE": "#11734b",     # Verde Escuro (Sucesso)
+        "ENTREGUE": "#11734b",     # Verde
         "ORÇAMENTO": "#e8eaed",    # Cinza Claro
-        "RESERVADO": "#0a53a8",    # Azul Escuro
-        
-        # --- NOVOS STATUS (RECEBIMENTO SALMÃO) ---
-        "LIVRE": "#28a745",        # Verde Claro (Disponível)
-        "ABERTO": "#0dcaf0"        # Azul Ciano (Em fracionamento)
+        "RESERVADO": "#0a53a8"     # Azul
     },
     # Cores usadas no tema da interface (CSS)
     "TEMA": {
@@ -126,25 +122,6 @@ def aplicar_estilos(perfil="Admin"):
             font-size: 22px;
             font-weight: bold;
         }}
-        
-        /* --- VISUAL DE GRADE PARA AS TAGS (RECEBIMENTO SALMÃO) --- */
-        .tag-box {{
-            background-color: #161b22;
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 6px;
-            padding: 10px;
-            text-align: center;
-            margin-bottom: 10px;
-            transition: all 0.2s;
-            cursor: pointer;
-        }}
-        .tag-box:hover {{
-            border-color: {c_dest};
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-        }}
-        .tag-number {{ font-size: 1.1em; font-weight: bold; color: #fff; }}
-        .tag-weight {{ font-size: 0.9em; color: #ccc; }}
         
         /* --- CORES DINÂMICAS PARA SAÚDE DA OPERAÇÃO --- */
         .saude-baixa {{ border-left: 5px solid #ff4b4b !important; }} /* Vermelho Erro */
