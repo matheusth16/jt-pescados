@@ -6,9 +6,11 @@ import streamlit as st
 import os
 import time
 from datetime import datetime
+import pytz
 
 # Constantes
 SHEET_ID = "1IenRiZI1TeqCFk4oB-r2WrqGsk0muUACsQA-kkvP4tc"
+FUSO_BR = pytz.timezone('America/Sao_Paulo')
 
 # --- FUNÇÕES AUXILIARES ---
 def limpar_texto(texto):
@@ -55,6 +57,21 @@ def get_connection():
     
     raise ConnectionError(f"Falha na conexão com Google Sheets: {last_error}")
 
+# --- CONTROLE DE CACHE INTELIGENTE ---
+def obter_versao_planilha():
+    """
+    Retorna o timestamp da última modificação do arquivo no Google Drive.
+    Usado como 'hash' para invalidar o cache apenas quando necessário.
+    """
+    try:
+        sh = get_connection()
+        # lastUpdateTime retorna uma string ISO (ex: '2023-10-27T10:00:00.000Z')
+        # Isso serve perfeitamente como token de versão.
+        return sh.lastUpdateTime
+    except Exception:
+        # Fallback: Se falhar (ex: API lenta), retorna o minuto atual para renovar a cada minuto
+        return time.time()
+
 # --- AUTENTICAÇÃO ---
 def autenticar_usuario(login_digitado, senha_digitada):
     sh = get_connection()
@@ -70,9 +87,10 @@ def autenticar_usuario(login_digitado, senha_digitada):
             return {"nome": u.get('NOME', 'Usuário'), "perfil": u.get('PERFIL', 'Operador')}
     return None
 
-# --- LEITURAS ---
-@st.cache_data(ttl=300)
-def listar_clientes():
+# --- LEITURAS COM CACHE INTELIGENTE ---
+# Removemos o TTL fixo e usamos o argumento _hash_versao como gatilho
+@st.cache_data
+def listar_clientes(_hash_versao=None):
     sh = get_connection()
     ws = sh.worksheet("BaseClientes")
     col_valores = ws.col_values(2)
@@ -80,6 +98,7 @@ def listar_clientes():
         return sorted(list(set([limpar_texto(n) for n in col_valores[1:] if n])))
     return []
 
+# Esta função não tem cache aqui pois o cache é controlado no app.py (dataframe completo)
 def buscar_pedidos_visualizacao():
     sh = get_connection()
     ws = sh.worksheet("Pedidos")
@@ -105,27 +124,21 @@ def corrigir_ids_faltantes(ws, dados):
         return True
     return False
 
-# --- NOVA FUNÇÃO: PROCESSAR HISTÓRICO (OPÇÃO 5) ---
+# --- HISTÓRICO ---
 def obter_resumo_historico(df_bruto, nome_cliente):
     """
     Recebe o DataFrame de pedidos e filtra os dados para a timeline do cliente.
-    Retorna uma lista de dicionários pronta para o componente visual.
     """
     if df_bruto.empty or not nome_cliente:
         return []
     
-    # Trabalhamos com uma cópia para não afetar o cache global
     df = df_bruto.copy()
-    
-    # Padroniza colunas
     df.columns = [str(c).strip().upper() for c in df.columns]
     
-    # Verifica colunas mínimas necessárias
     cols_necessarias = ["NOME CLIENTE", "STATUS", "ID_PEDIDO"]
     if not all(c in df.columns for c in cols_necessarias):
         return []
 
-    # Filtra pelo cliente (usando limpeza para garantir match)
     nome_alvo = limpar_texto(nome_cliente)
     df["_NOME_TEMP"] = df["NOME CLIENTE"].apply(limpar_texto)
     df_cli = df[df["_NOME_TEMP"] == nome_alvo]
@@ -133,21 +146,17 @@ def obter_resumo_historico(df_bruto, nome_cliente):
     if df_cli.empty:
         return []
 
-    # Tenta ordenar por data de entrega (mais recente primeiro)
     col_data = next((c for c in df_cli.columns if "ENTREGA" in c), None)
     if col_data:
         df_cli[col_data] = pd.to_datetime(df_cli[col_data], dayfirst=True, errors='coerce')
         df_cli = df_cli.sort_values(col_data, ascending=False)
 
-    # Monta a estrutura para o componente visual
     historico = []
     for _, row in df_cli.iterrows():
-        # Formata data para string bonita
         data_str = "-"
         if col_data and pd.notnull(row[col_data]):
             data_str = row[col_data].strftime("%d/%m/%Y")
         
-        # Tenta achar a melhor coluna de descrição
         desc = row.get("PEDIDO") or row.get("DESCRIÇÃO") or row.get("OBSERVAÇÃO") or "Sem descrição"
         
         item = {
@@ -164,7 +173,9 @@ def obter_resumo_historico(df_bruto, nome_cliente):
 # --- GRAVAÇÃO ---
 def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_escolhido, observacao="", nr_pedido="", usuario_logado="Sistema"):
     sh = get_connection()
+    # Limpamos o cache local para garantir que a próxima leitura pegue a mudança
     get_metricas.clear()
+    listar_clientes.clear()
     
     try:
         ws_respostas = sh.worksheet("Respostas ao formulário 1")
@@ -178,11 +189,13 @@ def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_esc
     nr_final = limpar_texto(nr_pedido)
     desc_final = descricao.strip() 
 
-    # 1. Respostas
+    # 1. Respostas (Data Agora com Fuso BR)
+    data_log = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
+    
     coluna_datas = ws_respostas.col_values(1)
     proxima_linha = len(coluna_datas) + 1 if len(coluna_datas) > 0 else 2
     ws_respostas.update(f"A{proxima_linha}:D{proxima_linha}", [[
-        datetime.now().strftime("%d/%m/%Y %H:%M:%S"), nome_final, desc_final, data_entrega.strftime("%d/%m/%Y")
+        data_log, nome_final, desc_final, data_entrega.strftime("%d/%m/%Y")
     ]])
     time.sleep(1) 
     
@@ -200,10 +213,10 @@ def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_esc
 
     if cells: ws_pedidos.update_cells(cells)
 
-    # 3. Log
+    # 3. Log (Data Agora com Fuso BR)
     try:
         ws_logs.append_row([
-            datetime.now().strftime("%d/%m/%Y %H:%M:%S"), str(novo_id), str(usuario_logado),
+            data_log, str(novo_id), str(usuario_logado),
             "CRIAÇÃO", "-", f"Status: {status_escolhido}"
         ])
     except: pass
@@ -230,7 +243,8 @@ def atualizar_pedidos_editaveis(df_editado, usuario_logado="Sistema"):
 
     cells = []
     logs = []
-    timestamp = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    # Data Agora com Fuso BR
+    timestamp = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
     
     cols_check = {"STATUS": "STATUS", "PAGAMENTO": "PAGAMENTO", "NR PEDIDO": "NR PEDIDO", "OBSERVAÇÃO": "OBSERVAÇÃO"}
 
@@ -242,7 +256,6 @@ def atualizar_pedidos_editaveis(df_editado, usuario_logado="Sistema"):
                 if col_df in df_editado.columns and col_sheet in mapa:
                     val_novo = limpar_texto(row[col_df]) if col_df not in ["STATUS", "PAGAMENTO"] else str(row[col_df]).strip().upper()
                     
-                    # Busca valor antigo pelo índice da coluna
                     idx_col_antiga = mapa[col_sheet] - 1
                     val_antigo = ""
                     if idx_col_antiga < len(antigo["data"]):
@@ -255,7 +268,7 @@ def atualizar_pedidos_editaveis(df_editado, usuario_logado="Sistema"):
     if logs: ws_logs.append_rows(logs)
     if cells: ws_pedidos.update_cells(cells)
 
-# --- CLIENTES (Lógica Max ID + 1) ---
+# --- CLIENTES ---
 def criar_novo_cliente(nome, cidade, documento=""):
     sh = get_connection()
     listar_clientes.clear()
@@ -266,15 +279,15 @@ def criar_novo_cliente(nome, cidade, documento=""):
     cidade_final = limpar_texto(cidade)
     doc_final = limpar_texto(documento)
     
-    # Lógica Max ID + 1 (Otimizada)
     coluna_ids = ws.col_values(1)[1:] 
     ids_nums = [int(x) for x in coluna_ids if str(x).strip().isdigit()]
     novo_id = max(ids_nums) + 1 if ids_nums else 1
     
     ws.append_row([novo_id, nome_final, cidade_final, doc_final])
 
-@st.cache_data(ttl=30)
-def get_metricas():
+# Cache Inteligente também nas Métricas
+@st.cache_data
+def get_metricas(_hash_versao=None):
     sh = get_connection()
     ws_cli = sh.worksheet("BaseClientes")
     ws_ped = sh.worksheet("Pedidos")
