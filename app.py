@@ -3,7 +3,7 @@ import time
 import plotly.express as px
 from datetime import datetime
 import pandas as pd
-from gspread.exceptions import APIError, WorksheetNotFound # <--- NOVAS IMPORTAÇÕES DE ERRO
+from gspread.exceptions import APIError, WorksheetNotFound
 import services.database as db
 import ui.styles as styles
 import ui.components as components
@@ -20,16 +20,9 @@ st.set_page_config(
 LISTA_STATUS = ["GERADO", "PENDENTE", "NÃO GERADO", "CANCELADO", "ENTREGUE", "ORÇAMENTO", "RESERVADO"]
 LISTA_PAGAMENTO = ["A COMBINAR", "PIX", "BOLETO", "CARTÃO"]
 
-# Mapa de Cores
-CORES_STATUS = {
-    "PENDENTE": "#ffeb00",
-    "GERADO": "#ff8500",
-    "NÃO GERADO": "#b10202",
-    "CANCELADO": "#ffa0a0",
-    "ENTREGUE": "#11734b",
-    "ORÇAMENTO": "#e8eaed",
-    "RESERVADO": "#0a53a8"
-}
+# --- CENTRALIZAÇÃO DE CORES (Passo 2 Concluído) ---
+# Agora buscamos as cores diretamente da fonte única de verdade (styles.py)
+CORES_STATUS = styles.PALETA_CORES["STATUS"]
 
 # --- FUNÇÕES DE CACHE COM TRATAMENTO DE ERROS ---
 @st.cache_data(ttl=300)
@@ -497,6 +490,7 @@ else:
                     "DIA DA ENTREGA": st.column_config.TextColumn("📅 Entrega")
                 }
 
+                # APLICAMOS A COR DO STATUS (Agora via dicionário centralizado)
                 df_estilizado = df_display.style.map(
                     lambda x: f'background-color: {CORES_STATUS.get(x, "")}; color: {"white" if x in ["NÃO GERADO", "RESERVADO", "ENTREGUE"] else "black"}', 
                     subset=['STATUS']

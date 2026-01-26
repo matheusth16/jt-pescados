@@ -1,5 +1,32 @@
 import streamlit as st
 
+# --- 1. PALETA DE CORES CENTRALIZADA (Fonte da Verdade) ---
+PALETA_CORES = {
+    # Cores usadas nos gráficos e status dos pedidos
+    "STATUS": {
+        "PENDENTE": "#ffeb00",     # Amarelo
+        "GERADO": "#ff8500",       # Laranja
+        "NÃO GERADO": "#b10202",   # Vermelho Escuro
+        "CANCELADO": "#ffa0a0",    # Vermelho Claro
+        "ENTREGUE": "#11734b",     # Verde
+        "ORÇAMENTO": "#e8eaed",    # Cinza Claro
+        "RESERVADO": "#0a53a8"     # Azul
+    },
+    # Cores usadas no tema da interface (CSS)
+    "TEMA": {
+        "Operador": {
+            "principal": "#004080",       # Azul Marinho
+            "destaque": "#00BFFF",        # Azul Ciano
+            "bg_card_sutil": "rgba(0, 191, 255, 0.03)"
+        },
+        "Admin": {
+            "principal": "#B22222",       # Vermelho JT
+            "destaque": "#FFD700",        # Dourado
+            "bg_card_sutil": "rgba(255, 0, 0, 0.03)"
+        }
+    }
+}
+
 def aplicar_estilos(perfil="Admin"):
     """
     Aplica todo o design system do JT Pescados e injeta o CSS global.
@@ -9,28 +36,16 @@ def aplicar_estilos(perfil="Admin"):
               para serem usadas na lógica do Python (ex: gráficos).
     """
     
-    # --- 1. DEFINIÇÃO DA PALETA DE CORES ---
-    # Centraliza a lógica de cores aqui. O app.py apenas consome.
-    if perfil == "Operador":
-        cores = {
-            "principal": "#004080",       # Azul Marinho
-            "destaque": "#00BFFF",        # Azul Ciano
-            "bg_card_sutil": "rgba(0, 191, 255, 0.03)"
-        }
-    else:
-        # Padrão Admin
-        cores = {
-            "principal": "#B22222",       # Vermelho JT
-            "destaque": "#FFD700",        # Dourado
-            "bg_card_sutil": "rgba(255, 0, 0, 0.03)"
-        }
+    # --- 2. SELEÇÃO DO TEMA ---
+    # Busca as cores no dicionário global com fallback para Admin se der erro
+    tema_ativo = PALETA_CORES["TEMA"].get(perfil, PALETA_CORES["TEMA"]["Admin"])
 
     # Variáveis locais para facilitar a injeção no f-string abaixo
-    c_prin = cores["principal"]
-    c_dest = cores["destaque"]
-    c_bg   = cores["bg_card_sutil"]
+    c_prin = tema_ativo["principal"]
+    c_dest = tema_ativo["destaque"]
+    c_bg   = tema_ativo["bg_card_sutil"]
 
-    # --- 2. INJEÇÃO DE ESTILOS CSS ---
+    # --- 3. INJEÇÃO DE ESTILOS CSS ---
     st.markdown(f"""
     <style>
         /* --- CONFIGURAÇÕES GERAIS --- */
@@ -179,5 +194,5 @@ def aplicar_estilos(perfil="Admin"):
     </style>
     """, unsafe_allow_html=True)
     
-    # Retorna o dicionário para ser usado no app.py (ex: cor_principal = cores['principal'])
-    return cores
+    # Retorna o dicionário para ser usado no app.py
+    return tema_ativo
