@@ -16,24 +16,43 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Constantes de Negócio
+# --- 1. GESTÃO DE SESSÃO RESILIENTE ---
+def inicializar_sessao():
+    """Garante que as variáveis de estado existam, sobrevivendo a recarregamentos."""
+    if "logado" not in st.session_state:
+        st.session_state.logado = False
+    if "usuario_nome" not in st.session_state:
+        st.session_state.usuario_nome = ""
+    if "usuario_perfil" not in st.session_state:
+        st.session_state.usuario_perfil = ""
+    if "form_id" not in st.session_state:
+        st.session_state.form_id = 0
+    if "processando_envio" not in st.session_state:
+        st.session_state.processando_envio = False
+
+# Esta chamada deve ficar no topo absoluto do script
+inicializar_sessao()
+
+# --- CONSTANTES E ESTILOS ---
 LISTA_STATUS = ["GERADO", "PENDENTE", "NÃO GERADO", "CANCELADO", "ENTREGUE", "ORÇAMENTO", "RESERVADO"]
 LISTA_PAGAMENTO = ["A COMBINAR", "PIX", "BOLETO", "CARTÃO"]
 
-# --- CENTRALIZAÇÃO DE CORES (Passo 2 Concluído) ---
-# Agora buscamos as cores diretamente da fonte única de verdade (styles.py)
+# Centralização de Cores (Do ui/styles.py)
 CORES_STATUS = styles.PALETA_CORES["STATUS"]
 
-# --- FUNÇÕES DE CACHE COM TRATAMENTO DE ERROS ---
-@st.cache_data(ttl=300)
-def carregar_clientes_cache():
+# Aplica Estilo Visual baseado no perfil
+perfil_atual = st.session_state.usuario_perfil if st.session_state.logado else "Admin"
+cores_tema = styles.aplicar_estilos(perfil=perfil_atual)
+cor_principal = cores_tema["principal"]
+
+# --- FUNÇÕES DE CACHE INTELIGENTE ---
+@st.cache_data(show_spinner=False)
+def carregar_clientes_cache(versao_hash):
     """
-    Busca a base de clientes.
-    Se falhar, exibe erro amigável e retorna DataFrame vazio para não quebrar a UI.
+    Busca clientes. O parâmetro 'versao_hash' força o recarregamento 
+    apenas se a planilha tiver sido modificada no Google Drive.
     """
     try:
-        # Nota: listar_clientes do db já retorna lista limpa, 
-        # mas aqui pegamos o raw para ter mais dados (cidade, rota) se necessário
         conn = db.get_connection()
         ws = conn.worksheet("BaseClientes")
         data = ws.get_all_records()
@@ -42,32 +61,21 @@ def carregar_clientes_cache():
             df.columns = [str(c).strip() for c in df.columns]
         return df
     except APIError as e:
-        components.render_error_details("O Google Sheets está sobrecarregado (Erro 429). Aguarde um instante.", e)
+        components.render_error_details("Google Sheets instável (429).", e)
         return pd.DataFrame()
     except Exception as e:
-        components.render_error_details("Não foi possível carregar a lista de clientes.", e)
+        components.render_error_details("Erro ao carregar clientes.", e)
         return pd.DataFrame()
 
-@st.cache_data(ttl=60)
-def carregar_pedidos_cache():
-    """Busca os pedidos com tratamento de erro."""
+@st.cache_data(show_spinner=False)
+def carregar_pedidos_cache(versao_hash):
+    """Busca pedidos usando o hash de versão para controle de cache."""
     try:
         return db.buscar_pedidos_visualizacao()
     except Exception as e:
-        components.render_error_details("Erro ao sincronizar pedidos recentes.", e)
+        components.render_error_details("Erro ao sincronizar pedidos.", e)
         return pd.DataFrame()
 
-# --- 1. GESTÃO DE SESSÃO ---
-if "logado" not in st.session_state:
-    st.session_state.logado = False
-    st.session_state.usuario_nome = ""
-    st.session_state.usuario_perfil = ""
-if "form_id" not in st.session_state:
-    st.session_state.form_id = 0
-
-# APLICA ESTILO VISUAL
-perfil_atual = st.session_state.usuario_perfil if st.session_state.logado else "Admin"
-cores_tema = styles.aplicar_estilos(perfil=perfil_atual)
 
 # --- 2. TELA DE LOGIN ---
 def tela_login():
@@ -92,17 +100,23 @@ def tela_login():
                     else:
                         st.error("Usuário ou senha incorretos.")
                 except ConnectionError as e:
-                    components.render_error_details("Sem conexão com a internet ou Google inacessível.", e)
+                    components.render_error_details("Sem conexão com a internet.", e)
                 except Exception as e:
-                    components.render_error_details("Erro técnico ao tentar login.", e)
+                    components.render_error_details("Erro técnico no login.", e)
 
 # --- 3. SISTEMA PRINCIPAL ---
 if not st.session_state.logado:
     tela_login()
 else:
+    # --- SINCRONIZAÇÃO INTELIGENTE ---
+    # Verifica a versão da planilha no Google Drive
+    try:
+        hash_dados = db.obter_versao_planilha()
+    except:
+        hash_dados = time.time() # Fallback
+
     NOME_USER = st.session_state.usuario_nome
     PERFIL = st.session_state.usuario_perfil
-    cor_principal = cores_tema["principal"]
 
     # --- SIDEBAR ---
     with st.sidebar:
@@ -110,6 +124,9 @@ else:
         st.markdown("<br>", unsafe_allow_html=True)
         
         components.render_user_card(NOME_USER, PERFIL)
+        
+        # Feedback discreto de Cache
+        st.caption("🔄 Sincronizado")
         
         st.markdown("---")
         
@@ -125,11 +142,11 @@ else:
     # --- CABEÇALHO ---
     st.title("📦 Portal de Pedidos Digital")
     
-    # Tentativa segura de carregar métricas
+    # Métricas com Cache Inteligente
     try:
-        qtd_cli, qtd_ped = db.get_metricas()
+        qtd_cli, qtd_ped = db.get_metricas(_hash_versao=hash_dados)
     except Exception:
-        qtd_cli, qtd_ped = "-", "-" # Falha silenciosa visual nas métricas para não travar tudo
+        qtd_cli, qtd_ped = "-", "-"
     
     m1, m2, m3 = st.columns(3)
     with m1:
@@ -184,10 +201,9 @@ else:
             if not filtro_tempo: filtro_tempo = "Tudo"
             st.markdown("---")
 
-            df_bruto = carregar_pedidos_cache()
+            df_bruto = carregar_pedidos_cache(hash_dados)
             
             if not df_bruto.empty:
-                # Lógica de Dashboard (Mantida igual, pois df_bruto vazio é tratado pelo 'else')
                 df_bruto.columns = [c.upper().strip() for c in df_bruto.columns]
                 col_dt = next((c for c in df_bruto.columns if "ENTREGA" in c), None)
 
@@ -237,7 +253,7 @@ else:
                             fig_pg.update_traces(marker_line_color='rgba(0,0,0,0)', textposition='outside')
                             st.plotly_chart(fig_pg, use_container_width=True)
 
-                # RESUMO DA OPERAÇÃO
+                # SAÚDE DA OPERAÇÃO
                 st.markdown("#### Resumo da Operação")
                 c1, c2, c3 = st.columns(3)
                 with c1:
@@ -251,7 +267,7 @@ else:
                 with c3:
                     components.render_status_card("✅ Pedidos Entregues", entregues, inline_color="#28A745")
                 
-                # EVOLUÇÃO TEMPORAL
+                # EVOLUÇÃO
                 st.markdown("#### 📈 Evolução de Pedidos por Dia")
                 with st.container(border=True):
                     if col_dt and not df_dash.empty:
@@ -286,12 +302,12 @@ else:
         with aba_novo:
             st.markdown("### 📝 Novo Pedido")
             
-            df_clientes_completo = carregar_clientes_cache()
+            # Smart Cache
+            df_clientes_completo = carregar_clientes_cache(hash_dados)
             lista_nomes = ["Consumidor Final"]
 
             if not df_clientes_completo.empty:
                 if "Cliente" in df_clientes_completo.columns:
-                    # Aplicando Sanitização Visual (Opção 1 + Cache)
                     nomes_validos = df_clientes_completo["Cliente"].dropna().astype(str).str.upper().unique()
                     lista_nomes = sorted([n for n in nomes_validos if n.strip() != ""])
 
@@ -311,7 +327,6 @@ else:
                     
                     if not df_clientes_completo.empty and "Cliente" in df_clientes_completo.columns:
                         try:
-                            # Comparação robusta (ambos string e maiúsculos)
                             row_cli = df_clientes_completo[df_clientes_completo["Cliente"].astype(str).str.upper() == str(cli).upper()]
                             if not row_cli.empty:
                                 cidade_cli = row_cli.iloc[0].get("Nome Cidade", "SÃO CARLOS")
@@ -327,9 +342,7 @@ else:
                     else:
                         st.success(f"📍 **Cidade:** {cidade_cli}  |  🚚 **Rota:** {rota_cli} (Entrega Externa)")
 
-# --- NOVO BLOCO DE HISTÓRICO (MODAL CENTRALIZADO) ---
-                    
-                    # 1. Definimos a Janela Modal (Função)
+                    # MODAL HISTÓRICO
                     @st.dialog("📜 Histórico Completo")
                     def modal_historico(cliente_nome):
                         st.markdown(f"### 👤 {cliente_nome}")
@@ -337,11 +350,10 @@ else:
                         st.markdown("---")
                         
                         try:
-                            df_hist_bruto = carregar_pedidos_cache()
+                            df_hist_bruto = carregar_pedidos_cache(hash_dados)
                             itens_historico = db.obter_resumo_historico(df_hist_bruto, cliente_nome)
                             
                             if itens_historico:
-                                # Mostra até 10 pedidos na modal (tem mais espaço)
                                 for item in itens_historico[:10]:
                                     components.render_history_item(
                                         id_ped=item['id'],
@@ -359,7 +371,6 @@ else:
                         except Exception as e:
                             st.error(f"Erro ao carregar: {e}")
 
-                    # 2. O Botão que abre a Modal
                     if st.button("📜 Ver Histórico", use_container_width=True):
                         modal_historico(cli)
                         
@@ -370,7 +381,7 @@ else:
                     st.write("")
                     st.write("")
                     try:
-                        df_vol = carregar_pedidos_cache()
+                        df_vol = carregar_pedidos_cache(hash_dados)
                         if not df_vol.empty:
                             data_sel = dt.strftime("%d/%m/%Y")
                             pedidos_no_dia = len(df_vol[df_vol["DIA DA ENTREGA"] == data_sel])
@@ -401,58 +412,52 @@ else:
                 else:
                     st.caption("📝 *Preencha a descrição dos itens para liberar o botão de cadastro.*")
 
-# --- TRAVA DE SEGURANÇA UX (Opção 3) ---
-                # Inicializa o estado de processamento se não existir
-                if "processando_envio" not in st.session_state:
-                    st.session_state.processando_envio = False
-
+                # --- 4. PREVENÇÃO DE DUPLO CLIQUE ---
                 c_btn1, c_btn2 = st.columns([3, 1])
                 
                 with c_btn1:
-                    # ESTADO 1: PROCESSANDO (Botão some, entra o Loading + Lógica)
+                    # ESTADO A: PROCESSANDO (Botão some, entra o Loading)
                     if st.session_state.processando_envio:
                         components.render_loader_action("🚀 Enviando pedido para o Google Sheets...")
                         
                         try:
-                            # A lógica pesada acontece aqui dentro, enquanto o loader gira
+                            # Ação de Gravação
                             db.salvar_pedido(cli, desc, dt, pg, stt, nr_pedido=nr_ped, usuario_logado=NOME_USER)
+                            
+                            # Limpeza de Cache Forçada
                             carregar_pedidos_cache.clear()
+                            carregar_clientes_cache.clear()
                             
                             st.toast(f"✅ Pedido para **{cli}** salvo com sucesso!", icon="🎉")
                             time.sleep(1.5)
                             
-                            # Sucesso: Reseta a trava e limpa o formulário
+                            # Reset do Estado
                             st.session_state.processando_envio = False
                             st.session_state.form_id += 1
                             st.rerun()
                             
                         except APIError as e:
                             components.render_error_details("Limite do Google (429). Aguarde e tente de novo.", e)
-                            st.session_state.processando_envio = False # Libera o botão para tentar de novo
+                            st.session_state.processando_envio = False 
                         except ConnectionError as e:
                             components.render_error_details("Sem conexão com a internet.", e)
-                            st.session_state.processando_envio = False
-                        except WorksheetNotFound as e:
-                            components.render_error_details("Aba da planilha não encontrada.", e)
                             st.session_state.processando_envio = False
                         except Exception as e:
                             components.render_error_details("Erro inesperado ao gravar.", e)
                             st.session_state.processando_envio = False
 
-                    # ESTADO 2: AGUARDANDO (Mostra o Botão Normal)
+                    # ESTADO B: AGUARDANDO (Botão Normal Disponível)
                     else:
                         def iniciar_envio():
-                            # Callback: A única coisa que o clique faz é ligar a "trava"
                             st.session_state.processando_envio = True
 
                         st.button("🚀 CADASTRAR PEDIDO", 
                                   type="primary", 
                                   use_container_width=True, 
                                   disabled=form_invalido, 
-                                  on_click=iniciar_envio) # <--- O segredo é o callback on_click
+                                  on_click=iniciar_envio)
                 
                 with c_btn2:
-                    # Botão de limpar: Desabilitado se estiver salvando para evitar conflito
                     if st.button("🗑️ Limpar", 
                                  use_container_width=True, 
                                  disabled=st.session_state.processando_envio):
@@ -465,7 +470,8 @@ else:
     if aba_gestao:
         with aba_gestao:
             st.subheader("📋 Painel de Controle")
-            df_gestao = carregar_pedidos_cache()
+            
+            df_gestao = carregar_pedidos_cache(hash_dados)
             
             if not df_gestao.empty:
                 df_gestao.columns = [c.upper().strip() for c in df_gestao.columns]
@@ -490,7 +496,7 @@ else:
                     "DIA DA ENTREGA": st.column_config.TextColumn("📅 Entrega")
                 }
 
-                # APLICAMOS A COR DO STATUS (Agora via dicionário centralizado)
+                # Estilização (apenas para Admin/Visualização)
                 df_estilizado = df_display.style.map(
                     lambda x: f'background-color: {CORES_STATUS.get(x, "")}; color: {"white" if x in ["NÃO GERADO", "RESERVADO", "ENTREGUE"] else "black"}', 
                     subset=['STATUS']
@@ -499,17 +505,18 @@ else:
                 if PERFIL == "Admin":
                     st.dataframe(df_estilizado, use_container_width=True, height=600, hide_index=True)
                 else:
+                    # Para operador, usamos a coluna visual extra (Pulo do Gato) se desejar, ou tabela simples
                     df_editado = st.data_editor(
                         df_display, column_config=cfg_visual,
                         use_container_width=True, height=600, hide_index=True, key="tabela_operador"
                     )
 
                     if st.button("💾 CONFIRMAR ALTERAÇÕES", type="primary", use_container_width=True):
-                        # --- TRY/EXCEPT PARA EDIÇÃO ---
                         try:
                             db.atualizar_pedidos_editaveis(df_editado, usuario_logado=NOME_USER)
                             carregar_pedidos_cache.clear()
                             st.success("✅ Atualizado!")
+                            time.sleep(1)
                             st.rerun()
                         except APIError as e:
                             components.render_error_details("Erro 429: Muitos acessos simultâneos.", e)
@@ -539,7 +546,6 @@ else:
                         elif doc_limpo and len(doc_limpo) not in [11, 14]:
                             st.error(f"⚠️ Documento Inválido! Detectamos {len(doc_limpo)} dígitos.")
                         else:
-                            # --- TRY/EXCEPT PARA NOVO CLIENTE ---
                             try:
                                 db.criar_novo_cliente(nn, cc, doc_limpo)
                                 carregar_clientes_cache.clear()
@@ -551,7 +557,7 @@ else:
 
             st.markdown("---")
             st.markdown("### 🔍 Clientes já Cadastrados")
-            df_clientes_view = carregar_clientes_cache()
+            df_clientes_view = carregar_clientes_cache(hash_dados)
             
             if not df_clientes_view.empty:
                 st.write(f"Atualmente você possui **{len(df_clientes_view)}** clientes na base.")
@@ -564,5 +570,3 @@ else:
                     }, hide_index=True, use_container_width=True, height=400)
             else:
                 st.info("Nenhum cliente encontrado na base de dados (ou falha no carregamento).")
-                
-# FIM DO ARQUIVO app.py

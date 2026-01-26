@@ -1,5 +1,4 @@
 import streamlit as st
-# Importa a paleta de cores centralizada (que definiremos no styles.py)
 from ui.styles import PALETA_CORES 
 
 def render_login_header():
@@ -68,9 +67,11 @@ def render_error_details(mensagem_amigavel, erro_tecnico=None):
             st.code(str(erro_tecnico), language="python")
             st.caption("Envie um print desta tela para o suporte técnico.")
 
+# --- COMPONENTE DE PREVENÇÃO DE DUPLO CLIQUE ---
 def render_loader_action(mensagem="⏳ Processando solicitação..."):
     """
-    Exibe um cartão de loading para substituir botões durante ações demoradas.
+    Exibe um cartão animado de 'Carregando'.
+    Este componente deve ser chamado NO LUGAR do botão quando o estado estiver 'processando'.
     """
     st.markdown(f"""
     <div style="
@@ -94,18 +95,15 @@ def render_loader_action(mensagem="⏳ Processando solicitação..."):
     </style>
     """, unsafe_allow_html=True)
 
-# --- ITEM DE HISTÓRICO (TIMELINE) ATUALIZADO ---
 def render_history_item(id_ped, data, status, descricao, pagamento):
     """
     Renderiza um único item do histórico com formatação visual de timeline.
-    Agora consome as cores diretamente da PALETA_CORES centralizada.
     """
     s = str(status).upper().strip()
     
     # Busca a cor na paleta centralizada (com fallback para cinza se não encontrar)
     cor_status = PALETA_CORES["STATUS"].get(s, "#8b949e")
     
-    # Ícones para facilitar a leitura rápida
     icone = "⚪"
     if s == "ENTREGUE":
         icone = "✅"
@@ -116,7 +114,6 @@ def render_history_item(id_ped, data, status, descricao, pagamento):
     elif s == "RESERVADO":
         icone = "🔵"
 
-    # CSS Inline para o cartão
     st.markdown(f"""
     <div style="
         margin-bottom: 10px; 
