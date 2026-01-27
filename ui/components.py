@@ -27,20 +27,49 @@ def render_metric_card(label, value, color_hex):
         </div>
     """, unsafe_allow_html=True)
 
-def render_status_card(label, value, css_class="", inline_color=None):
+def render_status_card(label, value, css_class="", inline_color=None, help_text=None):
     """
-    Renderiza os cartões de status da operação (Saúde, Pendentes, Entregues).
+    Renderiza os cartões de status.
+    Correção: HTML sem indentação para evitar que o Streamlit mostre o código cru.
     """
-    style_attr = ""
-    if inline_color:
-        style_attr = f'style="border-left: 5px solid {inline_color};"'
+    style_attr = f'style="border-left: 5px solid {inline_color};"' if inline_color else ""
     
-    st.markdown(f'''
-        <div class="status-card {css_class}" {style_attr}>
-            <span class="status-card-label">{label}</span>
-            <span class="status-card-value">{value}</span>
-        </div>
-    ''', unsafe_allow_html=True)
+    help_icon_html = ""
+    if help_text:
+        # Importante: Tudo na mesma linha ou concatenado sem espaços extras
+        help_icon_html = f'<div class="custom-tooltip"><span class="info-icon">ⓘ</span><div class="tooltip-content">{help_text}</div></div>'
+
+    # Bloco HTML colado na margem esquerda
+    html_code = f"""
+<div class="status-card {css_class}" {style_attr}>
+<div style="display: flex; flex-direction: column;">
+<span class="status-card-label">{label} {help_icon_html}</span>
+<span class="status-card-value">{value}</span>
+</div>
+</div>
+<style>
+.custom-tooltip {{ position: relative; display: inline-block; margin-left: 6px; cursor: help; }}
+.info-icon {{ color: #8b949e; font-size: 0.85em; transition: color 0.2s; }}
+.custom-tooltip:hover .info-icon {{ color: #fff; }}
+.tooltip-content {{
+    visibility: hidden; width: 240px; background-color: #0d1117; 
+    border: 1px solid #30363d; border-radius: 8px; padding: 10px; 
+    position: absolute; z-index: 105; bottom: 130%; left: 50%; 
+    margin-left: -120px; opacity: 0; transition: opacity 0.2s ease-in-out;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}}
+.custom-tooltip:hover .tooltip-content {{ visibility: visible; opacity: 1; }}
+.status-chip {{
+    display: flex; justify-content: space-between; align-items: center;
+    background-color: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px; padding: 6px 10px; margin-bottom: 5px; font-size: 0.85em;
+}}
+.chip-dot {{ display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; }}
+.chip-label {{ color: #c9d1d9; }}
+.chip-val {{ font-weight: bold; color: #fff; }}
+</style>
+"""
+    st.markdown(html_code, unsafe_allow_html=True)
 
 def render_preview_card(cliente, data_obj, rota, pagamento, status, cor_borda):
     """

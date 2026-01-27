@@ -51,12 +51,44 @@ def render_page(hash_dados, perfil):
                 if "STATUS" in df_dash.columns:
                     contagem_status = df_dash["STATUS"].value_counts().reset_index()
                     contagem_status.columns = ["STATUS", "TOTAL"]
-                    fig_status = px.pie(contagem_status, values="TOTAL", names="STATUS", 
-                                    hole=0.6, color="STATUS", color_discrete_map=PALETA_CORES["STATUS"])
-                    fig_status.add_annotation(text=f"<b>{total_pedidos}</b><br>PEDIDOS", 
-                                            showarrow=False, font=dict(size=20, color="white"))
-                    fig_status.update_layout(margin=dict(t=30, b=0, l=10, r=10), showlegend=False,
-                                        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                    
+                    # --- CRIAÇÃO DO GRÁFICO DE ROSCA OTIMIZADO ---
+                    fig_status = px.pie(
+                        contagem_status, 
+                        values="TOTAL", 
+                        names="STATUS", 
+                        hole=0.6, 
+                        color="STATUS", 
+                        color_discrete_map=PALETA_CORES["STATUS"]
+                    )
+                    
+                    # Anotação Central (Total)
+                    fig_status.add_annotation(
+                        text=f"<b>{total_pedidos}</b><br>PEDIDOS", 
+                        showarrow=False, 
+                        font=dict(size=20, color="white")
+                    )
+                    
+                    # Configurações de Visualização (Labels, Ordem e Hover)
+                    fig_status.update_traces(
+                        textposition='outside', 
+                        textinfo='percent+label', # Mostra Nome e % fora da fatia
+                        hovertemplate='<b>%{label}</b><br>Qtd: %{value}<br>(%{percent})', # Tooltip detalhado
+                        sort=True, 
+                        direction='clockwise', # Sentido horário
+                        rotation=90 # Começa do topo (12h)
+                    )
+                    
+                    # Layout Geral e Legenda
+                    fig_status.update_layout(
+                        margin=dict(t=30, b=50, l=40, r=40), 
+                        showlegend=True, # Legenda interativa ativada
+                        legend=dict(orientation="h", yanchor="top", y=-0.1, xanchor="center", x=0.5), # Legenda em baixo
+                        paper_bgcolor='rgba(0,0,0,0)', 
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color="white")
+                    )
+                    
                     st.plotly_chart(fig_status, use_container_width=True)
 
         with c_barra:
@@ -83,9 +115,42 @@ def render_page(hash_dados, perfil):
             pct_saude = (entregues / total_pedidos * 100) if total_pedidos > 0 else 0
             classe_cor = "saude-baixa" if pct_saude < 50 else "saude-media" if pct_saude < 80 else "saude-alta"
             components.render_status_card("🩺 Saúde da Operação", f"{pct_saude:.1f}%", css_class=classe_cor)
+        
+        # 2. AGUARDANDO PROCESSO (Mantendo a lógica dos Chips/Mini-cards corrigida)
         with c2:
-            pendentes = len(df_dash[df_dash["STATUS"].isin(["PENDENTE", "GERADO"])]) if "STATUS" in df_dash.columns else 0
-            components.render_status_card("⏳ Aguardando Processo", pendentes, inline_color="#FFA500")
+            if "STATUS" in df_dash.columns:
+                counts = df_dash["STATUS"].value_counts()
+                
+                p_orcamento = int(counts.get("ORÇAMENTO", 0))
+                p_reservado = int(counts.get("RESERVADO", 0))
+                p_n_gerado  = int(counts.get("NÃO GERADO", 0))
+                p_pendente  = int(counts.get("PENDENTE", 0))
+                p_gerado    = int(counts.get("GERADO", 0))
+                
+                total_aguardando = p_orcamento + p_reservado + p_n_gerado + p_pendente + p_gerado
+                
+                # Helper COMPACTADO (Sem espaços para não quebrar o visual)
+                def make_chip(label, val, cor):
+                    return f'<div class="status-chip"><div><span class="chip-dot" style="background-color: {cor}; box-shadow: 0 0 5px {cor};"></span><span class="chip-label">{label}</span></div><span class="chip-val">{val}</span></div>'
+
+                help_html = (
+                    make_chip("Orçamento", p_orcamento, PALETA_CORES["STATUS"]["ORÇAMENTO"]) +
+                    make_chip("Reservado", p_reservado, PALETA_CORES["STATUS"]["RESERVADO"]) +
+                    make_chip("Não Gerado", p_n_gerado, PALETA_CORES["STATUS"]["NÃO GERADO"]) +
+                    make_chip("Pendente", p_pendente, PALETA_CORES["STATUS"]["PENDENTE"]) +
+                    make_chip("Gerado", p_gerado, PALETA_CORES["STATUS"]["GERADO"])
+                )
+            else:
+                total_aguardando = 0
+                help_html = "Sem dados"
+
+            components.render_status_card(
+                "⏳ Aguardando Processo", 
+                total_aguardando, 
+                inline_color="#FFA500", 
+                help_text=help_html
+            )
+            
         with c3:
             components.render_status_card("✅ Pedidos Entregues", entregues, inline_color="#28A745")
         

@@ -337,3 +337,83 @@ def registrar_subtag(id_pai, letra, cliente, peso, status, usuario_logado):
     timestamp = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
     ws_logs.append_row([timestamp, f"TAG-{id_pai}", usuario_logado, "DESMEMBRAMENTO", "-", f"Letra {letra}: {peso}kg"])
     return True
+
+# --- ADICIONE ISTO AO FINAL DO ARQUIVO services/database.py ---
+
+def get_consumo_tag(tag_pai_id):
+    """
+    Retorna o peso total já consumido e a lista de letras usadas para uma Tag Pai.
+    """
+    sh = get_connection()
+    try:
+        ws = sh.worksheet("Recebimento_SubTags")
+        dados = ws.get_all_records()
+        df = pd.DataFrame(dados)
+        
+        if df.empty:
+            return [], 0.0
+            
+        # Padroniza colunas para evitar erro de caixa alta/baixa
+        df.columns = [str(c).strip().upper() for c in df.columns]
+        
+        # Verifica se as colunas essenciais existem (Baseado no registrar_subtag)
+        # ID_PAI, LETRA, PESO
+        if "ID_PAI" in df.columns:
+            # Filtra apenas as linhas dessa Tag
+            df["ID_PAI"] = pd.to_numeric(df["ID_PAI"], errors='coerce').fillna(0).astype(int)
+            df_tag = df[df["ID_PAI"] == int(tag_pai_id)]
+            
+            if df_tag.empty:
+                return [], 0.0
+
+            # Pega lista de letras já usadas
+            letras_usadas = []
+            if "LETRA" in df_tag.columns:
+                letras_usadas = df_tag["LETRA"].astype(str).str.strip().str.upper().tolist()
+            
+            # Soma o peso já desmembrado
+            peso_usado = 0.0
+            if "PESO" in df_tag.columns:
+                 # Garante que seja número
+                 s = df_tag["PESO"].astype(str).str.replace(",", ".")
+                 peso_usado = pd.to_numeric(s, errors='coerce').fillna(0.0).sum()
+                 
+            return letras_usadas, peso_usado
+            
+    except Exception:
+        return [], 0.0
+    
+    return [], 0.0
+
+# --- ADICIONE AO FINAL DE services/database.py ---
+
+def get_resumo_global_salmao():
+    """
+    Retorna contagens totais de todo o estoque (sem filtro de tags).
+    Retorna: (total, livre, gerado, orcamento, reservado)
+    """
+    sh = get_connection()
+    try:
+        ws = sh.worksheet("Recebimento_Salmão")
+        # Pega todos os registros para contagem global
+        dados = ws.get_all_records()
+        df = pd.DataFrame(dados)
+        
+        if df.empty or "Status" not in df.columns:
+            return 0, 0, 0, 0, 0
+            
+        # Normaliza para garantir contagem correta
+        s = df["Status"].astype(str).str.strip().str.capitalize()
+        
+        total = len(df)
+        livre = len(s[s == "Livre"])
+        gerado = len(s[s == "Gerado"])
+        
+        # 'Orçamento' pode ter variações de encoding, garantimos com startswith ou contains se necessário, 
+        # mas capitalize() deve resolver se estiver salvo corretamente.
+        orcamento = len(s[s == "Orçamento"]) 
+        reservado = len(s[s == "Reservado"])
+        
+        return total, livre, gerado, orcamento, reservado
+    except:
+        return 0, 0, 0, 0, 0

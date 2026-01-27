@@ -34,6 +34,10 @@ def inicializar_sessao():
     if "processando_envio" not in st.session_state:
         st.session_state.processando_envio = False
     
+    # Variável de Filtro do Dashboard (Novo - Interatividade Cruzada)
+    if "filtro_status_dash" not in st.session_state:
+        st.session_state.filtro_status_dash = None
+    
     # Variáveis do Módulo Salmão
     if "salmao_df" not in st.session_state:
         st.session_state.salmao_df = pd.DataFrame()
@@ -95,13 +99,14 @@ else:
         
         if PERFIL == "Admin":
             st.markdown("#### 🛠️ Ferramentas")
-            # Importante: O link da planilha agora está centralizado no config, mas aqui é apenas um link externo
-            # Se quiser, pode mover para config.py também, mas deixar aqui não fere a arquitetura.
+            # Link para planilha
             st.link_button("📂 Planilha Master", "https://docs.google.com/spreadsheets/d/1IenRiZI1TeqCFk4oB-r2WrqGsk0muUACsQA-kkvP4tc/edit?usp=sharing", use_container_width=True)
         
         st.markdown("<br><br>", unsafe_allow_html=True)
         if st.button("🚪 Sair", use_container_width=True):
             st.session_state.logado = False
+            # Limpa filtros ao sair para evitar confusão no próximo login
+            st.session_state.filtro_status_dash = None 
             st.rerun()
 
     # 3.2. Header e Métricas Topo

@@ -13,7 +13,7 @@ def render_page(hash_dados, perfil, nome_user):
     if not df_gestao.empty:
         df_gestao.columns = [c.upper().strip() for c in df_gestao.columns]
 
-        with st.expander("🔍 Filtros de Busca", expanded=False):
+        with st.expander("🔍 Filtros de Busca", expanded=True):
             c_f1, c_f2 = st.columns(2)
             with c_f1: 
                 f_status = st.multiselect("Filtrar por Status:", LISTA_STATUS, default=[])
