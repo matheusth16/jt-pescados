@@ -6,28 +6,10 @@ import streamlit as st
 import os
 import time
 from datetime import datetime
-import pytz
 
-# Constantes
-SHEET_ID = "1IenRiZI1TeqCFk4oB-r2WrqGsk0muUACsQA-kkvP4tc"
-FUSO_BR = pytz.timezone('America/Sao_Paulo')
-
-# --- FUNÇÕES AUXILIARES ---
-def limpar_texto(texto):
-    """
-    Padroniza textos: Remove espaços extras e converte para Maiúsculas.
-    """
-    if not texto:
-        return ""
-    return str(texto).strip().upper()
-
-def get_col_indices(ws):
-    """Mapeia nomes das colunas para índices."""
-    cabecalhos = [c.upper().strip() for c in ws.row_values(1)]
-    mapa = {}
-    for idx, nome in enumerate(cabecalhos):
-        mapa[nome] = idx + 1
-    return mapa
+# --- NOVOS IMPORTS DA ARQUITETURA ---
+from core.config import SHEET_ID, FUSO_BR
+from services.utils import limpar_texto
 
 # --- CONEXÃO COM GOOGLE SHEETS ---
 @st.cache_resource
@@ -57,12 +39,17 @@ def get_connection():
     
     raise ConnectionError(f"Falha na conexão com Google Sheets: {last_error}")
 
+# --- FUNÇÕES AUXILIARES LOCAIS ---
+def get_col_indices(ws):
+    """Mapeia nomes das colunas para índices."""
+    cabecalhos = [c.upper().strip() for c in ws.row_values(1)]
+    mapa = {}
+    for idx, nome in enumerate(cabecalhos):
+        mapa[nome] = idx + 1
+    return mapa
+
 # --- CONTROLE DE CACHE INTELIGENTE ---
 def obter_versao_planilha():
-    """
-    Retorna o timestamp da última modificação do arquivo no Google Drive.
-    Usado como 'hash' para invalidar o cache apenas quando necessário.
-    """
     try:
         sh = get_connection()
         return sh.lastUpdateTime
@@ -281,15 +268,11 @@ def get_metricas(_hash_versao=None):
     return len(ws_cli.col_values(1))-1, len(ws_ped.col_values(1))-1
 
 # ==============================================================================
-# --- MÓDULO RECEBIMENTO SALMÃO (NOVO) ---
+# --- MÓDULO RECEBIMENTO SALMÃO ---
 # ==============================================================================
 
 @st.cache_data(ttl=30, show_spinner=False)
 def get_estoque_filtrado(tag_inicio, tag_fim):
-    """
-    Busca todas as tags (cacheado) mas retorna APENAS o intervalo solicitado.
-    Isso evita que o Frontend do Streamlit trave com 560 linhas editáveis.
-    """
     sh = get_connection()
     try:
         ws = sh.worksheet("Recebimento_Salmão")
@@ -297,15 +280,12 @@ def get_estoque_filtrado(tag_inicio, tag_fim):
         df = pd.DataFrame(dados)
         
         if not df.empty and "Tag" in df.columns:
-            # Garante que Tag é numérico para filtrar
             df["Tag"] = pd.to_numeric(df["Tag"], errors='coerce').fillna(0).astype(int)
             
-            # Tratamento de Peso
             if "Peso" in df.columns:
                 df["Peso"] = df["Peso"].astype(str).str.replace(",", ".")
                 df["Peso"] = pd.to_numeric(df["Peso"], errors='coerce').fillna(0.0)
             
-            # FILTRAGEM DO INTERVALO
             df_filtrado = df[(df["Tag"] >= tag_inicio) & (df["Tag"] <= tag_fim)]
             return df_filtrado.sort_values("Tag")
             
@@ -314,11 +294,8 @@ def get_estoque_filtrado(tag_inicio, tag_fim):
         return pd.DataFrame()
 
 def salvar_alteracoes_estoque(df_novo, usuario_logado):
-    """
-    Salva as edições feitas no intervalo filtrado.
-    """
     sh = get_connection()
-    get_estoque_filtrado.clear() # Limpa cache para ver a mudança
+    get_estoque_filtrado.clear()
     
     ws = sh.worksheet("Recebimento_Salmão")
     ws_logs = sh.worksheet("Historico_Logs")
@@ -330,8 +307,6 @@ def salvar_alteracoes_estoque(df_novo, usuario_logado):
     logs = []
     timestamp = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
     
-    # Assumimos que Tag N está na Linha N+1 (Tag 1 = Row 2)
-    # Pois a planilha é fixa de 1 a 560
     for idx, row_nova in df_novo.iterrows():
         tag_id = int(row_nova["Tag"])
         excel_row = tag_id + 1 
@@ -346,13 +321,11 @@ def salvar_alteracoes_estoque(df_novo, usuario_logado):
 
     if updates:
         ws.update_cells(updates)
-        # Log simplificado
         ws_logs.append_row([timestamp, "LOTE", usuario_logado, "EDICAO_ESTOQUE", "-", f"Atualizou {len(updates)} células"])
         return len(updates)
     return 0
 
 def registrar_subtag(id_pai, letra, cliente, peso, status, usuario_logado):
-    """Insere nova subtag na aba Recebimento_SubTags."""
     sh = get_connection()
     
     ws = sh.worksheet("Recebimento_SubTags")
