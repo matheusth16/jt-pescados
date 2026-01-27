@@ -184,3 +184,43 @@ def render_split_form(tag_pai, peso_pai):
     status_unidade = st.selectbox("Status Inicial", ["GERADO", "RESERVADO", "ORÇAMENTO", "LIVRE"])
     
     return letra, peso_unidade, nome_cliente, status_unidade
+
+# --- PAGINAÇÃO (NOVO) ---
+def render_pagination(pagina_atual, total_paginas):
+    """
+    Renderiza controles de paginação simples: [Anterior] [Pág X de Y] [Próximo]
+    
+    Retorna:
+        int: O número da nova página a ser carregada. 
+             Se nenhum botão for clicado, retorna a pagina_atual.
+    """
+    # Se só tem uma página, não precisa mostrar controles
+    if total_paginas <= 1:
+        return 1
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Layout centralizado: colunas vazias nas pontas para empurrar o conteúdo para o meio
+    c_esq, c_prev, c_info, c_next, c_dir = st.columns([3, 1, 2, 1, 3], vertical_alignment="center")
+    
+    nova_pagina = pagina_atual
+
+    with c_prev:
+        # Desabilita o botão se estiver na primeira página
+        if st.button("◀ Anterior", key="btn_prev", disabled=(pagina_atual <= 1), use_container_width=True):
+            nova_pagina = max(1, pagina_atual - 1)
+
+    with c_info:
+        st.markdown(
+            f"<p style='text-align: center; margin: 0; color: #8b949e; font-size: 0.9em;'>"
+            f"Página <b>{pagina_atual}</b> de <b>{total_paginas}</b>"
+            f"</p>", 
+            unsafe_allow_html=True
+        )
+
+    with c_next:
+        # Desabilita o botão se estiver na última página
+        if st.button("Próxima ▶", key="btn_next", disabled=(pagina_atual >= total_paginas), use_container_width=True):
+            nova_pagina = min(total_paginas, pagina_atual + 1)
+
+    return nova_pagina

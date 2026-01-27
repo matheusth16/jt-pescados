@@ -4,6 +4,10 @@ import pytz
 SHEET_ID = "1IenRiZI1TeqCFk4oB-r2WrqGsk0muUACsQA-kkvP4tc"
 FUSO_BR = pytz.timezone('America/Sao_Paulo')
 
+# --- REGRAS DE NEGÓCIO (VALIDADE) ---
+DIAS_ALERTA_AMARELO = 7  
+DIAS_ALERTA_VERMELHO = 3 
+
 # --- LISTAS DE OPÇÕES (Dropdowns) ---
 LISTA_STATUS = [
     "GERADO", "PENDENTE", "NÃO GERADO", 
@@ -26,17 +30,24 @@ PALETA_CORES = {
         "ORÇAMENTO": "#e8eaed",    # Cinza Claro
         "RESERVADO": "#0a53a8"     # Azul
     },
+    # Cores para alertas de validade
+    "VALIDADE": {
+        "CRITICO": "#ff4d4d", # Vermelho vivo
+        "ALERTA": "#ffeb3b",  # Amarelo vivo
+        "OK": ""              # Sem cor de fundo
+    },
     # Cores usadas no tema da interface (CSS)
+    # CORREÇÃO: Agora são dicionários completos, não apenas strings
     "TEMA": {
-        "Operador": {
-            "principal": "#004080",       # Azul Marinho
-            "destaque": "#00BFFF",        # Azul Ciano
-            "bg_card_sutil": "rgba(0, 191, 255, 0.03)"
-        },
         "Admin": {
-            "principal": "#B22222",       # Vermelho JT
-            "destaque": "#FFD700",        # Dourado
-            "bg_card_sutil": "rgba(255, 0, 0, 0.03)"
+            "principal": "#b10202",             # Vermelho JT
+            "destaque": "#d9534f",              # Vermelho mais claro (Toasts/Alertas)
+            "bg_card_sutil": "rgba(177, 2, 2, 0.1)" # Fundo translúcido avermelhado
+        },
+        "Operador": {
+            "principal": "#001f3f",             # Azul Marinho
+            "destaque": "#0074cc",              # Azul mais claro
+            "bg_card_sutil": "rgba(0, 31, 63, 0.2)" # Fundo translúcido azulado
         }
     }
 }

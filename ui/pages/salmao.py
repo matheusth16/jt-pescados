@@ -1,8 +1,11 @@
 import streamlit as st
 import pandas as pd
 import time
+from datetime import datetime
 import services.database as db
 import ui.components as components
+from core.config import PALETA_CORES
+from services.utils import calcular_status_validade
 
 # --- MODAL LOCAL ---
 @st.dialog("✂️ Desmembrar Tag (Fracionamento)")
@@ -33,15 +36,18 @@ def modal_desmembramento(tag_id, peso_atual, usuario_nome, df_tabela_atual):
                 st.warning("⚠️ O peso deve ser maior que zero.")
             elif letra_limpa in letras_usadas:
                 st.error(f"⛔ A letra '{letra_limpa}' já existe nesta Tag! Use outra.")
-            elif peso_unidade > saldo_disponivel + 0.001: # +0.001 para tolerância de arredondamento
+            elif peso_unidade > saldo_disponivel + 0.001: 
                 st.error(f"⛔ Peso indisponível! Você tentou {peso_unidade}kg, mas só restam {saldo_disponivel:.3f}kg.")
             else:
-                # --- AUTO-SAVE DA TABELA GERAL (SEGURANÇA) ---
-                # Salva o status "Aberto" ou outras edições pendentes antes de criar a subtag
+                # Prepara tabela para salvamento seguro (convertendo datas se necessário)
                 if df_tabela_atual is not None and not df_tabela_atual.empty:
-                    db.salvar_alteracoes_estoque(df_tabela_atual, usuario_nome)
+                    df_safe = df_tabela_atual.copy()
+                    if "Validade" in df_safe.columns:
+                        df_safe["Validade"] = df_safe["Validade"].apply(
+                            lambda x: x.strftime("%d/%m/%Y") if pd.notnull(x) and not isinstance(x, str) else x
+                        )
+                    db.salvar_alteracoes_estoque(df_safe, usuario_nome)
 
-                # --- GRAVAÇÃO DA SUBTAG ---
                 sucesso = db.registrar_subtag(
                     tag_id, letra_limpa, cliente, peso_unidade, status, usuario_nome
                 )
@@ -57,20 +63,17 @@ def modal_desmembramento(tag_id, peso_atual, usuario_nome, df_tabela_atual):
 def render_page(nome_user, perfil):
     st.subheader("🐟 Recebimento de Salmão")
     
-    # --- MÉTRICAS GLOBAIS DE ESTOQUE (NOVO) ---
-    # Busca os totais de TODA a planilha
+    # --- MÉTRICAS GLOBAIS DE ESTOQUE ---
     qtd_total, qtd_livre, qtd_gerado, qtd_orc, qtd_reservado = db.get_resumo_global_salmao()
     
-    # Exibe os cards no topo
     m1, m2, m3, m4, m5 = st.columns(5)
-    with m1: components.render_metric_card("📦 Total Tags", qtd_total, "#8b949e") # Cinza
-    with m2: components.render_metric_card("✅ Livre", qtd_livre, "#28a745")      # Verde
-    with m3: components.render_metric_card("⚙️ Gerado", qtd_gerado, "#ff8500")    # Laranja
-    with m4: components.render_metric_card("📝 Orçamento", qtd_orc, "#e8eaed")    # Cinza Claro
-    with m5: components.render_metric_card("🔵 Reservado", qtd_reservado, "#0a53a8") # Azul
+    with m1: components.render_metric_card("📦 Total Tags", qtd_total, "#8b949e")
+    with m2: components.render_metric_card("✅ Livre", qtd_livre, "#28a745")
+    with m3: components.render_metric_card("⚙️ Gerado", qtd_gerado, "#ff8500")
+    with m4: components.render_metric_card("📝 Orçamento", qtd_orc, "#e8eaed")
+    with m5: components.render_metric_card("🔵 Reservado", qtd_reservado, "#0a53a8")
 
     st.markdown("---")
-    
     st.info("ℹ️ Mude o Status na tabela para **'Aberto'** e ele aparecerá no topo para corte.")
 
     # --- PAINEL DE COMANDO ---
@@ -85,7 +88,6 @@ def render_page(nome_user, perfil):
         with c_btn:
             carregar = st.button("🔍 Carregar Intervalo", type="primary", use_container_width=True)
 
-    # --- LÓGICA DE CARREGAMENTO ---
     if carregar:
         qtd_solicitada = tag_end - tag_start + 1
         if qtd_solicitada > 50:
@@ -101,38 +103,84 @@ def render_page(nome_user, perfil):
     # --- VISUALIZAÇÃO PRINCIPAL ---
     if not st.session_state.salmao_df.empty:
         
-        # 1. RESERVA O ESPAÇO NO TOPO (Para as Tags Abertas)
-        container_pendencias = st.container()
+        df_view = st.session_state.salmao_df.copy() # Trabalha numa cópia para filtros
         
-        st.markdown("---") # Separador visual
+        # --- CONVERSÃO PARA DATE PICKER ---
+        if "Validade" in df_view.columns:
+            df_view["Validade"] = pd.to_datetime(df_view["Validade"], format="%d/%m/%Y", errors="coerce")
 
-        # 2. TABELA GERAL
+        # ==========================================================
+        # 🌪️ FILTROS AVANÇADOS (NOVO)
+        # ==========================================================
+        with st.expander("🌪️ Filtros Avançados (Calibre / Fornecedor)", expanded=False):
+            c_fil1, c_fil2 = st.columns(2)
+            
+            with c_fil1:
+                # Pega opções únicas do DF atual
+                opcoes_calibre = sorted([str(x) for x in df_view["Calibre"].unique() if str(x) != "nan" and str(x) != ""])
+                filtro_calibre = st.multiselect("Filtrar por Calibre:", options=opcoes_calibre)
+            
+            with c_fil2:
+                # Verifica se existe coluna Fornecedor antes de tentar filtrar
+                opcoes_forn = []
+                if "Fornecedor" in df_view.columns:
+                    opcoes_forn = sorted([str(x) for x in df_view["Fornecedor"].unique() if str(x) != "nan" and str(x) != ""])
+                filtro_fornecedor = st.multiselect("Filtrar por Fornecedor:", options=opcoes_forn)
+
+            # APLICAÇÃO DOS FILTROS
+            if filtro_calibre:
+                df_view = df_view[df_view["Calibre"].astype(str).isin(filtro_calibre)]
+            
+            if filtro_fornecedor and "Fornecedor" in df_view.columns:
+                df_view = df_view[df_view["Fornecedor"].astype(str).isin(filtro_fornecedor)]
+
+        # ==========================================================
+        
+        container_pendencias = st.container()
+        st.markdown("---")
         st.markdown(f"### 📋 Tabela Geral: {st.session_state.salmao_range_str}")
         
-        df_view = st.session_state.salmao_df
-        
+        # Configuração das Colunas (Adicionado Fornecedor)
         cfg_colunas = {
             "Tag": st.column_config.NumberColumn("Tag", disabled=True, format="%d"),
             "Calibre": st.column_config.SelectboxColumn("Calibre", options=["8/10", "10/12", "12/14", "14/16"]),
             "Status": st.column_config.SelectboxColumn("Status", options=["Livre", "Reservado", "Orçamento", "Gerado", "Aberto"]),
             "Peso": st.column_config.NumberColumn("Peso (kg)", format="%.2f"),
-            "Validade": st.column_config.TextColumn("Validade"),
-            "Cliente": st.column_config.TextColumn("Cliente Destino")
+            "Validade": st.column_config.DateColumn("Validade", format="DD/MM/YYYY"),
+            "Cliente": st.column_config.TextColumn("Cliente Destino"),
+            "Fornecedor": st.column_config.TextColumn("Fornecedor") # <--- ADICIONADO
         }
 
-        # --- LÓGICA DIFERENCIADA POR PERFIL ---
+        # Função auxiliar para estilo
+        def estilizar_validade(val):
+            val_str = ""
+            if pd.notnull(val):
+                if isinstance(val, (pd.Timestamp, datetime)):
+                    val_str = val.strftime("%d/%m/%Y")
+                else:
+                    val_str = str(val)
+            
+            status = calcular_status_validade(val_str)
+            cor = PALETA_CORES["VALIDADE"].get(status, "")
+            return f'background-color: {cor}' if cor else ''
+
         if perfil == "Admin":
-            # Admin: Somente Leitura (st.dataframe)
-            st.dataframe(
-                df_view,
-                use_container_width=True,
-                height=400,
-                hide_index=True,
-                column_config=cfg_colunas
-            )
+            df_estilizado = df_view.style.map(estilizar_validade, subset=['Validade'])
+            st.dataframe(df_estilizado, use_container_width=True, height=400, hide_index=True, column_config=cfg_colunas)
             tabela_editada = df_view 
         else:
-            # Operador: Edição (st.data_editor)
+            # Lógica de Alertas
+            itens_criticos = 0
+            itens_alerta = 0
+            for val in df_view['Validade']:
+                val_str = val.strftime("%d/%m/%Y") if pd.notnull(val) else ""
+                s = calcular_status_validade(val_str)
+                if s == "CRITICO": itens_criticos += 1
+                if s == "ALERTA": itens_alerta += 1
+
+            if itens_criticos > 0 or itens_alerta > 0:
+                st.warning(f"⚠️ Atenção: {itens_criticos} Lotes Críticos e {itens_alerta} em Alerta!")
+
             tabela_editada = st.data_editor(
                 df_view,
                 key="editor_salmao_visual",
@@ -145,42 +193,43 @@ def render_page(nome_user, perfil):
             
             if st.button("💾 Salvar Alterações da Tabela", type="secondary", use_container_width=True):
                 with st.spinner("Gravando..."):
-                    n = db.salvar_alteracoes_estoque(tabela_editada, nome_user)
+                    # --- CONVERSÃO INVERSA ---
+                    tabela_salvar = tabela_editada.copy()
+                    tabela_salvar["Validade"] = tabela_salvar["Validade"].apply(
+                        lambda x: x.strftime("%d/%m/%Y") if pd.notnull(x) else ""
+                    )
+                    
+                    n = db.salvar_alteracoes_estoque(tabela_salvar, nome_user)
                     if n > 0:
                         st.success(f"✅ {n} linhas atualizadas!")
-                        st.session_state.salmao_df = tabela_editada
+                        # Atualiza a sessão original (sem filtros) com os novos dados
+                        # Idealmente, recarregaríamos do banco, mas para ser rápido, atualizamos o que foi editado
+                        st.session_state.salmao_df = tabela_editada 
                         time.sleep(1)
                         st.rerun()
                     else:
                         st.info("Nada para salvar.")
 
-        # 3. PAINEL DE PENDÊNCIAS (TOPO)
+        # PAINEL DE PENDÊNCIAS (Considera apenas o filtrado ou o total?
+        # Aqui usamos tabela_editada, ou seja, se filtrou, só vê pendências do filtro. O que faz sentido.)
         with container_pendencias:
             if not tabela_editada.empty and "Status" in tabela_editada.columns:
                 df_abertos = tabela_editada[tabela_editada["Status"].astype(str).str.upper() == "ABERTO"]
                 
                 if not df_abertos.empty:
                     st.warning("🔥 **Tags Abertas (Prioridade)**")
-                    
                     for idx, row in df_abertos.iterrows():
                         with st.container(border=True):
                             c_tag, c_peso, c_cli, c_btn = st.columns([1, 1.5, 2, 2], vertical_alignment="center")
-                            
-                            with c_tag:
-                                st.markdown(f"### 🏷️ {row['Tag']}")
-                            with c_peso:
+                            with c_tag: st.markdown(f"### 🏷️ {row['Tag']}")
+                            with c_peso: 
                                 st.markdown(f"**{row['Peso']} kg**")
                                 st.caption(row['Calibre'])
                             with c_cli:
-                                if row['Cliente']:
-                                    st.write(f"👤 {row['Cliente']}")
-                                else:
-                                    st.caption("Sem cliente definido")
+                                st.write(f"👤 {row['Cliente']}" if row['Cliente'] else "Sem cliente")
                             with c_btn:
-                                # Botão Desmembrar disponível para todos (Admin e Operador)
-                                # Passamos a 'tabela_editada' inteira para a função salvar automaticamente
                                 if st.button(f"✂️ Desmembrar", key=f"top_cut_{row['Tag']}", type="primary", use_container_width=True):
                                     modal_desmembramento(row['Tag'], row['Peso'], nome_user, tabela_editada)
     else:
-        if st.session_state.salmao_range_str:
+        if st.session_state.get("salmao_range_str"):
             st.warning("Nenhum dado encontrado.")

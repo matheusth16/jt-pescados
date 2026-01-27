@@ -1,11 +1,13 @@
 import streamlit as st
 import time
+import math
 import services.database as db
 import ui.components as components
 
 def render_page(hash_dados, perfil):
     st.subheader("➕ Gestão de Clientes")
     
+    # --- FORMULÁRIO DE CADASTRO (MANTIDO IGUAL) ---
     with st.container(border=True):
         with st.form("cad_cli", clear_on_submit=True):
             nn = st.text_input("Nome do Cliente / Empresa", placeholder="Razão Social ou Nome Fantasia")
@@ -33,24 +35,40 @@ def render_page(hash_dados, perfil):
     st.markdown("---")
     st.markdown("### 🔍 Clientes já Cadastrados")
     
-    # Recriando busca de clientes para tabela
-    try:
-        conn = db.get_connection()
-        ws = conn.worksheet("BaseClientes")
-        import pandas as pd
-        data = ws.get_all_records()
-        df_clientes_view = pd.DataFrame(data)
-    except:
-        df_clientes_view = pd.DataFrame()
+    # --- LÓGICA DE PAGINAÇÃO ---
+    if "pag_atual_clientes" not in st.session_state:
+        st.session_state["pag_atual_clientes"] = 1
+        
+    TAMANHO_PAGINA = 20
+    
+    # Busca apenas os 20 clientes da página atual
+    df_clientes_view, total_registros = db.buscar_clientes_paginado(st.session_state["pag_atual_clientes"], TAMANHO_PAGINA)
+    
+    # Calcula total de páginas
+    total_paginas = math.ceil(total_registros / TAMANHO_PAGINA)
     
     if not df_clientes_view.empty:
-        st.write(f"Atualmente você possui **{len(df_clientes_view)}** clientes na base.")
-        st.dataframe(df_clientes_view, column_config={
-                "ID": st.column_config.NumberColumn("ID", format="%d"),
-                "Cliente": st.column_config.TextColumn("👤 Cliente"),
+        # Mostra contador global
+        st.caption(f"Total de registros na base: **{total_registros}**")
+        
+        st.dataframe(df_clientes_view, use_container_width=True, hide_index=True, column_config={
+                "Código": st.column_config.NumberColumn("ID", format="%d", width="small"),
+                "Cliente": st.column_config.TextColumn("👤 Cliente", width="medium"),
                 "Nome Cidade": st.column_config.TextColumn("📍 Cidade"),
                 "CPF/CNPJ": st.column_config.TextColumn("🆔 Documento"),
                 "ROTA": st.column_config.TextColumn("🚚 Rota")
-            }, hide_index=True, use_container_width=True, height=400)
+        })
+        
+        # --- CONTROLES DE PAGINAÇÃO ---
+        nova_pagina = components.render_pagination(st.session_state["pag_atual_clientes"], total_paginas)
+        
+        if nova_pagina != st.session_state["pag_atual_clientes"]:
+            st.session_state["pag_atual_clientes"] = nova_pagina
+            st.rerun()
+            
     else:
-        st.info("Nenhum cliente encontrado na base de dados (ou falha no carregamento).")
+        st.info("Nenhum cliente encontrado nesta página.")
+        if total_paginas > 0:
+            if st.button("Voltar ao Início"):
+                st.session_state["pag_atual_clientes"] = 1
+                st.rerun()

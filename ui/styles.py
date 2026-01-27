@@ -33,94 +33,66 @@ def aplicar_estilos(perfil="Admin"):
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 10px;
             padding: 15px;
-            text-align: center;
             margin-bottom: 20px;
-            transition: transform 0.3s ease;
-        }}
-        .user-card:hover {{
-            transform: scale(1.02);
-            border-color: {c_dest};
+            text-align: center;
         }}
         .user-name {{
-            font-size: 18px;
+            color: #e6e6e6;
             font-weight: bold;
-            color: white;
+            font-size: 1.1em;
             margin: 0;
         }}
         .user-role {{
-            font-size: 13px;
-            color: #8b949e;
-            margin-top: 5px;
+            color: {c_prin}; /* Cor dinâmica do perfil */
+            font-size: 0.9em;
+            margin: 0;
             text-transform: uppercase;
             letter-spacing: 1px;
         }}
 
-        /* --- CARDS DE MÉTRICAS DO TOPO (KPIs) --- */
+        /* --- METRIC CARDS (TOPO) --- */
         .metric-container {{
             background-color: #161b22;
             border: 1px solid #30363d;
-            border-left: 5px solid {c_prin};
-            border-radius: 10px;
-            padding: 20px;
-            text-align: left;
-            box-shadow: 2px 2px 10px rgba(0,0,0,0.3);
+            border-left: 5px solid {c_prin}; /* Borda dinâmica */
+            border-radius: 8px;
+            padding: 15px;
             margin-bottom: 10px;
         }}
-        .metric-label {{ color: #8b949e; font-size: 14px; font-weight: 500; margin-bottom: 5px; }}
-        .metric-value {{ color: white; font-size: 28px; font-weight: bold; }}
-
-        /* --- DASHBOARD: STATUS CARDS LATERAIS --- */
-        .status-card {{
-            background-color: #1c2128;
-            border: 1px solid #30363d;
-            border-radius: 10px;
-            padding: 15px;
-            margin-bottom: 12px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-            transition: background-color 0.2s;
-            min-height: 80px;
+        .metric-label {{
+            color: #8b949e;
+            font-size: 0.85em;
+            margin: 0;
         }}
-        .status-card:hover {{
-            background-color: #21262d;
-        }}
-        .status-card-label {{
-            color: #c9d1d9;
-            font-size: 14px;
-            font-weight: 500;
-        }}
-        .status-card-value {{
-            color: white;
-            font-size: 22px;
+        .metric-value {{
+            color: #f0f6fc;
+            font-size: 1.5em;
             font-weight: bold;
+            margin: 0;
+        }}
+
+        /* --- PREVIEW CARD (NOVO PEDIDO) --- */
+        .preview-card {{
+            background-color: {c_bg};
+            border: 1px solid {c_prin};
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
         }}
         
-        /* --- CORES DINÂMICAS PARA SAÚDE DA OPERAÇÃO --- */
-        .saude-baixa {{ border-left: 5px solid #ff4b4b !important; }} /* Vermelho Erro */
-        .saude-media {{ border-left: 5px solid #ffeb3b !important; }} /* Amarelo Atenção */
-        .saude-alta  {{ border-left: 5px solid #28a745 !important; }} /* Verde Sucesso */
-
-        /* --- ESTILO DAS ABAS (TABS) --- */
-        .stTabs [data-baseweb="tab-list"] {{ 
-            gap: 10px; 
+        /* --- STATUS BADGES --- */
+        .status-badge {{
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.85em;
+            display: inline-block;
         }}
-        .stTabs [data-baseweb="tab"] {{
-            background-color: #161b22;
-            border-radius: 8px 8px 0 0;
-            padding: 10px 20px;
-            color: #8b949e;
-            border: 1px solid transparent;
-            transition: all 0.2s;
-        }}
-        .stTabs [data-baseweb="tab"]:hover {{
-            color: white;
-            background-color: #21262d;
-        }}
-        .stTabs [aria-selected="true"] {{
-            background-color: {c_prin}20 !important;
-            border-bottom: 3px solid {c_prin} !important;
+        
+        /* --- CUSTOM TOAST --- */
+        div[data-testid="stToast"] {{
+            background-color: {c_dest} !important;
             color: white !important;
         }}
 
@@ -156,17 +128,15 @@ def aplicar_estilos(perfil="Admin"):
             background-color: {c_bg};
             border: 1px solid {c_prin};
             border-radius: 15px;
-            padding: 25px;
+            padding: 20px;
         }}
-
-        /* --- DATA EDITOR (TABELAS) --- */
+        
+        /* --- AJUSTES TABELAS --- */
         [data-testid="stDataFrame"] {{
             border: 1px solid #30363d;
-            border-radius: 10px;
+            border-radius: 8px;
         }}
-
     </style>
     """, unsafe_allow_html=True)
-    
-    # Retorna o dicionário para ser usado no app.py
+
     return tema_ativo

@@ -417,3 +417,117 @@ def get_resumo_global_salmao():
         return total, livre, gerado, orcamento, reservado
     except:
         return 0, 0, 0, 0, 0
+
+# --- PAGINAÇÃO DE PEDIDOS ---
+def buscar_pedidos_paginado(pagina_atual=1, tamanho_pagina=20):
+    """
+    Busca pedidos no Google Sheets de forma paginada.
+    Retorna: 
+        - df (DataFrame): Apenas as linhas da página solicitada.
+        - total_registros (int): Total de pedidos na base (para cálculo de páginas).
+    """
+    sh = get_connection()
+    ws = sh.worksheet("Pedidos")
+    
+    # 1. Busca Cabeçalho (Linha 1) para montar o DataFrame corretamente
+    cabecalhos = ws.row_values(1)
+    
+    # 2. Busca Total de Linhas (Baseado na Coluna A - ID)
+    # Isso é muito mais rápido do que carregar a planilha toda
+    col_ids = ws.col_values(1)
+    total_linhas_sheet = len(col_ids)
+    total_registros = max(0, total_linhas_sheet - 1) # Desconta cabeçalho
+    
+    # 3. Calcula o intervalo de linhas (Start/End)
+    # Linha 1 é cabeçalho. Dados começam na Linha 2.
+    inicio = ((pagina_atual - 1) * tamanho_pagina) + 2
+    fim = inicio + tamanho_pagina - 1
+    
+    # Validações de limites
+    if inicio > total_linhas_sheet:
+        return pd.DataFrame(columns=cabecalhos), total_registros
+    
+    if fim > total_linhas_sheet:
+        fim = total_linhas_sheet
+
+    # 4. Define o Range A1 (Ex: "A2:Z21")
+    # Função auxiliar para pegar a letra da coluna (ex: 10 -> J, 27 -> AA)
+    def get_col_letter(n):
+        string = ""
+        while n > 0:
+            n, remainder = divmod(n - 1, 26)
+            string = chr(65 + remainder) + string
+        return string
+
+    letra_ultima_coluna = get_col_letter(len(cabecalhos))
+    range_busca = f"A{inicio}:{letra_ultima_coluna}{fim}"
+    
+    # 5. Busca apenas os dados daquele intervalo
+    dados = ws.get(range_busca)
+    
+    if not dados:
+        return pd.DataFrame(columns=cabecalhos), total_registros
+
+    # Garante consistência de colunas (caso o Google Sheets não envie células vazias do final)
+    dados_ajustados = []
+    for linha in dados:
+        if len(linha) < len(cabecalhos):
+            linha += [""] * (len(cabecalhos) - len(linha))
+        dados_ajustados.append(linha)
+
+    # Cria o DataFrame
+    df = pd.DataFrame(dados_ajustados, columns=cabecalhos)
+    
+    return df, total_registros
+
+# --- PAGINAÇÃO DE CLIENTES ---
+def buscar_clientes_paginado(pagina_atual=1, tamanho_pagina=20):
+    """
+    Busca clientes no Google Sheets de forma paginada.
+    """
+    sh = get_connection()
+    ws = sh.worksheet("BaseClientes")
+    
+    # 1. Busca Cabeçalho
+    cabecalhos = ws.row_values(1)
+    
+    # 2. Busca Total (Baseado na Coluna A - Código)
+    col_ids = ws.col_values(1)
+    total_linhas_sheet = len(col_ids)
+    total_registros = max(0, total_linhas_sheet - 1)
+    
+    # 3. Calcula intervalo
+    inicio = ((pagina_atual - 1) * tamanho_pagina) + 2
+    fim = inicio + tamanho_pagina - 1
+    
+    if inicio > total_linhas_sheet:
+        return pd.DataFrame(columns=cabecalhos), total_registros
+    
+    if fim > total_linhas_sheet:
+        fim = total_linhas_sheet
+
+    # 4. Define Range e Busca
+    def get_col_letter(n):
+        string = ""
+        while n > 0:
+            n, remainder = divmod(n - 1, 26)
+            string = chr(65 + remainder) + string
+        return string
+
+    letra_ultima_coluna = get_col_letter(len(cabecalhos))
+    range_busca = f"A{inicio}:{letra_ultima_coluna}{fim}"
+    
+    dados = ws.get(range_busca)
+    
+    if not dados:
+        return pd.DataFrame(columns=cabecalhos), total_registros
+
+    # Ajusta colunas vazias
+    dados_ajustados = []
+    for linha in dados:
+        if len(linha) < len(cabecalhos):
+            linha += [""] * (len(cabecalhos) - len(linha))
+        dados_ajustados.append(linha)
+
+    df = pd.DataFrame(dados_ajustados, columns=cabecalhos)
+    return df, total_registros

@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd  # <--- ADICIONADO AQUI
 import time
 from datetime import datetime
 from gspread.exceptions import APIError
@@ -14,27 +15,24 @@ def render_page(hash_dados, perfil, nome_user):
 
     st.markdown("### 📝 Novo Pedido")
     
-    df_clientes_completo = db.listar_clientes(hash_dados) # Traz lista simples ou df se mudar a logica
-    # Para o selectbox funcionar com o que temos hoje no db.py:
-    # Nota: listar_clientes no db.py hoje retorna lista de strings nomes.
-    # Mas no seu app.py original você usava 'carregar_clientes_cache' que retornava DF.
-    # Vou ajustar para usar o cache local do arquivo novo database se necessário ou manter compatibilidade.
-    # Pelo app.py original, parecia retornar DF. Vamos garantir no database.py ou usar buscar_pedidos_visualizacao?
-    # No app.py original você carregava clientes via db.get_connection...
-    # Vamos usar db.listar_clientes para o combobox, mas para pegar dados extras (cidade/rota) precisamos do DF.
+    # Inicializa DataFrame vazio como fallback
+    df_clientes_completo = pd.DataFrame() 
     
-    # RECRIAÇÃO DA LÓGICA DO APP.PY PARA CLIENTES COMPLETO:
     try:
+        # Tenta buscar os dados completos para pegar Cidade e Rota
         conn = db.get_connection()
         ws = conn.worksheet("BaseClientes")
-        import pandas as pd
         data = ws.get_all_records()
         df_clientes_completo = pd.DataFrame(data)
+        
         if not df_clientes_completo.empty:
+            # Normaliza colunas para evitar erros de espaços
             df_clientes_completo.columns = [str(c).strip() for c in df_clientes_completo.columns]
     except:
+        # Se der erro (ex: offline), segue com DataFrame vazio
         df_clientes_completo = pd.DataFrame()
 
+    # Prepara a lista de nomes para o Selectbox
     lista_nomes = ["Consumidor Final"]
     if not df_clientes_completo.empty:
         if "Cliente" in df_clientes_completo.columns:
@@ -55,6 +53,7 @@ def render_page(hash_dados, perfil, nome_user):
             cidade_cli = "Não informado"
             rota_cli = "-"
             
+            # Busca Cidade e Rota automaticamente se o DF foi carregado
             if not df_clientes_completo.empty and "Cliente" in df_clientes_completo.columns:
                 try:
                     row_cli = df_clientes_completo[df_clientes_completo["Cliente"].astype(str).str.upper() == str(cli).upper()]
@@ -75,15 +74,24 @@ def render_page(hash_dados, perfil, nome_user):
             @st.dialog("📜 Histórico Completo")
             def modal_historico(cliente_nome):
                 st.markdown(f"### 👤 {cliente_nome}")
-                st.caption("Visualizando os últimos pedidos encontrados.")
+                st.caption("Visualizando histórico de pedidos.")
                 st.markdown("---")
+                
+                # --- LÓGICA DE PAGINAÇÃO DO MODAL ---
+                key_limit = f"hist_limit_{cliente_nome}"
+                if key_limit not in st.session_state:
+                    st.session_state[key_limit] = 5  # Começa mostrando 5 itens
                 
                 try:
                     df_hist_bruto = db.buscar_pedidos_visualizacao()
                     itens_historico = db.obter_resumo_historico(df_hist_bruto, cliente_nome)
                     
+                    total_itens = len(itens_historico)
+                    limite_atual = st.session_state[key_limit]
+
                     if itens_historico:
-                        for item in itens_historico[:10]:
+                        # Exibe apenas até o limite atual
+                        for item in itens_historico[:limite_atual]:
                             components.render_history_item(
                                 id_ped=item['id'],
                                 data=item['data'],
@@ -92,9 +100,13 @@ def render_page(hash_dados, perfil, nome_user):
                                 pagamento=item['pagamento']
                             )
                         
-                        restante = len(itens_historico) - 10
+                        # Botão para carregar mais
+                        restante = total_itens - limite_atual
                         if restante > 0:
-                            st.info(f"E mais {restante} pedidos antigos...")
+                            st.info(f"Ainda existem {restante} pedidos mais antigos.")
+                            if st.button("🔄 Carregar mais antigos", use_container_width=True):
+                                st.session_state[key_limit] += 5 
+                                st.rerun()
                     else:
                         st.warning("📭 Nenhum histórico encontrado para este cliente.")
                 except Exception as e:
@@ -113,8 +125,11 @@ def render_page(hash_dados, perfil, nome_user):
                 df_vol = db.buscar_pedidos_visualizacao()
                 if not df_vol.empty:
                     data_sel = dt.strftime("%d/%m/%Y")
-                    pedidos_no_dia = len(df_vol[df_vol["DIA DA ENTREGA"] == data_sel])
-                    st.metric("📅 Agendamentos do Dia", f"{pedidos_no_dia} Pedidos")
+                    # Corrige nome da coluna para garantir compatibilidade
+                    col_entrega = next((c for c in df_vol.columns if "ENTREGA" in c.upper()), None)
+                    if col_entrega:
+                        pedidos_no_dia = len(df_vol[df_vol[col_entrega] == data_sel])
+                        st.metric("📅 Agendamentos do Dia", f"{pedidos_no_dia} Pedidos")
             except:
                 pass
 
