@@ -80,6 +80,39 @@ def aplicar_estilos(perfil="Admin"):
             margin-top: 10px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
         }}
+
+        /* --- STATUS CARDS (Dashboard/Operações) --- */
+        .status-card {{
+            background-color: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 15px;
+            height: 100%;
+        }}
+        .status-card-label {{
+            color: #8b949e;
+            font-size: 0.85em;
+            margin-bottom: 5px;
+            display: block;
+        }}
+        .status-card-value {{
+            color: #f0f6fc;
+            font-size: 1.5em;
+            font-weight: bold;
+            display: block;
+        }}
+        
+        /* --- VARIAÇÕES DE SAÚDE (Borda Lateral) --- */
+        /* Estas classes correspondem à lógica no dashboard.py */
+        .saude-baixa {{
+            border-left: 5px solid #d9534f; /* Vermelho */
+        }}
+        .saude-media {{
+            border-left: 5px solid #ffa500; /* Laranja */
+        }}
+        .saude-alta {{
+            border-left: 5px solid #28a745; /* Verde */
+        }}
         
         /* --- STATUS BADGES --- */
         .status-badge {{
