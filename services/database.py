@@ -340,6 +340,27 @@ def get_estoque_filtrado(tag_inicio, tag_fim):
         return pd.DataFrame()
     except Exception:
         return pd.DataFrame()
+    
+def get_estoque_backup_filtrado(tag_inicio, tag_fim):
+    """Busca o histórico de itens 'Gerados' (arquivados) no intervalo de tags."""
+    client = get_db_client()
+    try:
+        response = client.table("estoque_salmao_backup")\
+            .select("*")\
+            .gte("Tag", tag_inicio)\
+            .lte("Tag", tag_fim)\
+            .order("Tag")\
+            .execute()
+            
+        if response.data:
+            df = pd.DataFrame(response.data)
+            # Mesmas conversões de tipo da tabela principal para garantir compatibilidade
+            df["Tag"] = pd.to_numeric(df["Tag"], errors='coerce').fillna(0).astype(int)
+            df["Peso"] = pd.to_numeric(df["Peso"], errors='coerce').fillna(0.0)
+            return df
+        return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
 
 def salvar_alteracoes_estoque(df_novo, usuario_logado):
     client = get_db_client()

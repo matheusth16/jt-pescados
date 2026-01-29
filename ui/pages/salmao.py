@@ -294,14 +294,42 @@ def painel_tabela_interativa(df_base, perfil, range_str):
     st.markdown(f"### 📋 Tabela Geral: {range_str}")
     
     with st.container():
+        # --- LÓGICA DE EXPORTAÇÃO ATUALIZADA ---
         buffer = io.BytesIO()
+        
+        # Recupera o intervalo atual da sessão (tag_start, tag_end)
+        range_atual = st.session_state.get("range_salmao_atual")
+        
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            df_view.to_excel(writer, index=False, sheet_name='Salmao')
+            # 1. Pega os dados da tela (Ativos)
+            df_export = df_view.copy()
+            
+            # 2. Busca e adiciona o Backup (Gerados), se tivermos um intervalo definido
+            if range_atual:
+                df_backup = db.get_estoque_backup_filtrado(range_atual[0], range_atual[1])
+                
+                if not df_backup.empty:
+                    # Aplica a mesma formatação visual (tratamento de Nulos/Datas)
+                    df_backup_view = preparar_dataframe_view(df_backup)
+                    
+                    # (Opcional) Adiciona uma coluna para saber qual é qual no Excel
+                    df_export["Origem"] = "Atual / Livre"
+                    df_backup_view["Origem"] = "Histórico / Gerado"
+                    
+                    # Junta as duas tabelas
+                    df_export = pd.concat([df_export, df_backup_view], ignore_index=True)
+            
+            # Ordena por Tag para ficar organizado no Excel
+            if "Tag" in df_export.columns:
+                df_export = df_export.sort_values(by=["Tag", "Origem"])
+
+            # Salva no buffer
+            df_export.to_excel(writer, index=False, sheet_name='Salmao_Completo')
         
         st.download_button(
-            label="📥 Baixar Tabela em Excel",
+            label="📥 Baixar Tabela (Com Gerados)",
             data=buffer,
-            file_name=f"estoque_salmao_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
+            file_name=f"estoque_salmao_completo_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
             mime="application/vnd.ms-excel",
             type="secondary"
         )
