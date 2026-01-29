@@ -26,23 +26,21 @@ def highlight_status_salmao(val):
 @st.dialog("🐟 Detalhes da Tag")
 def modal_detalhes_tag(row_dict, perfil, nome_user, range_atual):
     tag_id = row_dict.get('Tag')
-    # Recupera o status original do banco, mas vamos permitir mudar na interface
+    # Recupera o status original do banco
     status_db = row_dict.get('Status')
     if not status_db or str(status_db).strip() in ["", "None"]: status_db = "Livre"
 
-    # --- CORREÇÃO AQUI ---
-    # 1. Definimos o peso original do banco (para usar como default nos inputs)
+    # 1. Definimos o peso original do banco
     peso_banco = float(row_dict.get('Peso', 0))
     
     # 2. Definimos a chave do input para checar o session_state
     key_input_peso = f"num_peso_{tag_id}"
     
-    # 3. Se o usuário já digitou algo, usamos esse valor para contas (peso_considerado)
+    # 3. Lógica para pegar o valor em tempo real
     if key_input_peso in st.session_state:
         peso_considerado = st.session_state[key_input_peso]
     else:
         peso_considerado = peso_banco
-    # ---------------------
         
     st.markdown(f"### 🏷️ TAG #{tag_id}")
     
@@ -53,7 +51,6 @@ def modal_detalhes_tag(row_dict, perfil, nome_user, range_atual):
         st.write(f"**{row_dict.get('Calibre', '')}**")
     with c2: 
         st.caption("Peso Atual")
-        # Mostramos o peso dinâmico (se editado) ou do banco
         st.write(f"**{peso_considerado:.3f} kg**")
     with c3: 
         st.caption("Status Atual (Banco)")
@@ -85,7 +82,7 @@ def modal_detalhes_tag(row_dict, perfil, nome_user, range_atual):
     else:
         # --- MODO INTERATIVO ---
         
-        # 1. Seletor de Status (Define as abas)
+        # 1. Seletor de Status
         opcoes_status = ["Livre", "Reservado", "Orçamento", "Gerado", "Aberto"]
         idx_s = opcoes_status.index(status_db) if status_db in opcoes_status else 0
         
@@ -104,35 +101,71 @@ def modal_detalhes_tag(row_dict, perfil, nome_user, range_atual):
                 st.info("🔪 Adicione unidades retiradas desta peça.")
                 letras_usadas, peso_ja_consumido = db.get_consumo_tag(tag_id)
                 
-                # CORREÇÃO: Usa 'peso_considerado' (dinâmico) no cálculo do saldo
+                # Saldo dinâmico
                 saldo = max(0.0, peso_considerado - peso_ja_consumido)
                 
                 c_info1, c_info2 = st.columns(2)
                 with c_info1: st.metric("Já Usado", f"{peso_ja_consumido:.3f} kg")
                 with c_info2: st.metric("Saldo", f"{saldo:.3f} kg")
 
-                # Formulário isolado apenas para o botão de adicionar unidade
                 with st.form(f"split_{tag_id}"):
                     c_f1, c_f2 = st.columns(2)
                     with c_f1: 
                         letra_sug = components.proxima_letra_disponivel(letras_usadas)
                         novo_letra = st.text_input("Letra (Sufixo)", value=letra_sug, max_chars=2)
                     with c_f2:
-                        # O max_value usa o saldo calculado dinamicamente
                         novo_peso_sub = st.number_input("Peso (kg)", min_value=0.0, max_value=saldo, step=0.1, format="%.3f")
                     novo_cli_sub = st.text_input("Cliente Destino")
                     
                     if st.form_submit_button("✅ CONFIRMAR UNIDADE", type="primary", use_container_width=True):
                         letra_limpa = novo_letra.strip().upper()
+                        
                         if not novo_cli_sub or novo_peso_sub <= 0 or letra_limpa in letras_usadas:
-                            st.error("Dados inválidos.")
+                            st.error("Dados inválidos (Peso zero ou Letra repetida).")
                         else:
+                            # >>> NOVA LÓGICA: SALVAR O PAI PRIMEIRO <<<
+                            # Recuperamos os valores que estão nos inputs da outra aba via session_state
+                            
+                            # 1. Recupera Calibre
+                            s_cal_sel = st.session_state.get(f"sel_cal_{tag_id}")
+                            s_cal_txt = st.session_state.get(f"txt_cal_{tag_id}")
+                            if s_cal_sel == "Outro": FINAL_CAL = s_cal_txt
+                            elif s_cal_sel: FINAL_CAL = s_cal_sel
+                            else: FINAL_CAL = row_dict.get('Calibre')
+                            
+                            # 2. Recupera Validade (Formatando para String)
+                            s_val_obj = st.session_state.get(f"dt_val_{tag_id}")
+                            if s_val_obj: FINAL_VAL = s_val_obj.strftime("%d/%m/%Y")
+                            else: FINAL_VAL = row_dict.get('Validade')
+
+                            # 3. Recupera Clientes/Forn
+                            FINAL_CLI = st.session_state.get(f"txt_cli_{tag_id}", row_dict.get('Cliente'))
+                            FINAL_FORN = st.session_state.get(f"txt_forn_{tag_id}", row_dict.get('Fornecedor'))
+                            
+                            # Monta o DataFrame de Atualização do Pai
+                            df_pai_up = pd.DataFrame([{
+                                "Tag": tag_id, 
+                                "Status": novo_status, # Garante que salva como 'Aberto'
+                                "Calibre": FINAL_CAL, 
+                                "Peso": peso_considerado, # Salva o peso novo digitado
+                                "Validade": FINAL_VAL, 
+                                "Cliente": FINAL_CLI, 
+                                "Fornecedor": FINAL_FORN
+                            }])
+                            
+                            # Salva o Pai no Banco
+                            db.salvar_alteracoes_estoque(df_pai_up, nome_user)
+                            # ------------------------------------------
+
+                            # Agora salva a Subtag
                             ok = db.registrar_subtag(tag_id, letra_limpa, novo_cli_sub, novo_peso_sub, "Livre", nome_user)
                             if ok:
-                                st.success("Unidade criada!")
+                                st.success("Unidade criada e Tag Pai atualizada!")
                                 if range_atual:
                                     st.session_state.salmao_df = db.get_estoque_filtrado(range_atual[0], range_atual[1])
                                 time.sleep(0.5)
+                                # [CORREÇÃO] Força o reset da tabela
+                                st.session_state.salmao_editor_key += 1
                                 st.session_state.tag_para_visualizar = None
                                 st.rerun()
 
@@ -140,7 +173,6 @@ def modal_detalhes_tag(row_dict, perfil, nome_user, range_atual):
         with abas[-1]:
             c_e1, c_e2 = st.columns(2)
             with c_e1:
-                # Lógica do Calibre Inteligente
                 cal_atual = str(row_dict.get('Calibre', '')).strip()
                 if cal_atual == "None": cal_atual = ""
                 
@@ -161,7 +193,7 @@ def modal_detalhes_tag(row_dict, perfil, nome_user, range_atual):
                     calibre_final = sel_calibre
 
             with c_e2:
-                # CORREÇÃO: O 'value' deve ser 'peso_banco'. O Streamlit usará a 'key' para pegar o valor editado.
+                # O 'value' é o do banco, mas a 'key' permite o Streamlit lembrar o que você digitou
                 m_peso = st.number_input("Peso (kg)", value=peso_banco, format="%.3f", key=f"num_peso_{tag_id}")
                 
                 try: d_val = datetime.strptime(str(row_dict.get('Validade')), "%d/%m/%Y")
@@ -195,6 +227,8 @@ def modal_detalhes_tag(row_dict, perfil, nome_user, range_atual):
                         st.session_state.salmao_df = db.get_estoque_filtrado(range_atual[0], range_atual[1])
                 
                 time.sleep(0.5)
+                # [CORREÇÃO] Força o reset da tabela
+                st.session_state.salmao_editor_key += 1
                 st.session_state.tag_para_visualizar = None 
                 st.rerun()
 
@@ -304,8 +338,16 @@ def render_page(hash_dados, perfil, nome_user):
         selecionado = tabela[tabela["VER"] == True]
         if not selecionado.empty:
             dados_linha = selecionado.iloc[0].to_dict()
-            if isinstance(dados_linha.get('Validade'), (pd.Timestamp, datetime)):
-                dados_linha['Validade'] = dados_linha['Validade'].strftime("%d/%m/%Y")
+            
+            # --- CORREÇÃO: Verifica se não é NaT antes de formatar ---
+            val_validade = dados_linha.get('Validade')
+            if pd.notna(val_validade) and hasattr(val_validade, 'strftime'):
+                dados_linha['Validade'] = val_validade.strftime("%d/%m/%Y")
+            else:
+                # Se for NaT ou vazio, definimos como string vazia para não quebrar o modal
+                dados_linha['Validade'] = ""
+            # ---------------------------------------------------------
+
             st.session_state.tag_para_visualizar = dados_linha
             st.session_state.salmao_editor_key += 1 
             st.rerun()
