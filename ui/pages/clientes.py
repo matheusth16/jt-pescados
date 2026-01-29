@@ -42,6 +42,7 @@ def render_page(hash_dados, perfil):
     TAMANHO_PAGINA = 20
     
     # Busca apenas os 20 clientes da página atual e o total
+    # OTIMIZAÇÃO: O banco agora retorna apenas as colunas: Código, Cliente, Nome Cidade, CPF/CNPJ, ROTA
     df_clientes_view, total_registros = db.buscar_clientes_paginado(st.session_state["pag_atual_clientes"], TAMANHO_PAGINA)
     
     # Calcula total de páginas
@@ -51,13 +52,14 @@ def render_page(hash_dados, perfil):
         # Mostra contador global
         st.caption(f"Total de registros na base: **{total_registros}**")
         
+        # Configuração da Tabela
+        # Removemos 'created_at' pois ela não é mais baixada do banco (economia de dados)
         st.dataframe(df_clientes_view, use_container_width=True, hide_index=True, column_config={
                 "Código": st.column_config.NumberColumn("ID", format="%d", width="small"),
                 "Cliente": st.column_config.TextColumn("👤 Cliente", width="medium"),
                 "Nome Cidade": st.column_config.TextColumn("📍 Cidade"),
                 "CPF/CNPJ": st.column_config.TextColumn("🆔 Documento"),
-                "ROTA": st.column_config.TextColumn("🚚 Rota"),
-                "created_at": None # <--- OCULTA A COLUNA DE DATA DE CRIAÇÃO
+                "ROTA": st.column_config.TextColumn("🚚 Rota")
         })
         
         # --- CONTROLES DE PAGINAÇÃO ---

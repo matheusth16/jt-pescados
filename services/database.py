@@ -53,10 +53,11 @@ def autenticar_usuario(login_digitado, senha_digitada):
     return None
 
 # --- LEITURAS ---
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300)
 def listar_clientes(_hash_versao=None):
     client = get_db_client()
     try:
+        # Mantém apenas a coluna Cliente para preencher listas simples
         response = client.table("clientes").select("Cliente").order("Cliente").execute()
         if response.data:
             lista = [c["Cliente"] for c in response.data if c["Cliente"]]
@@ -65,11 +66,38 @@ def listar_clientes(_hash_versao=None):
         pass
     return []
 
-def buscar_pedidos_visualizacao():
-    """Busca todos os pedidos para visualização (sem paginação)."""
+@st.cache_data(ttl=300)
+def listar_dados_filtros():
+    """
+    Retorna listas únicas de Cidades e Rotas dos pedidos para preencher filtros.
+    Cache longo (5 min) pois esses dados variam pouco.
+    """
     client = get_db_client()
     try:
-        response = client.table("pedidos").select("*").order("ID_PEDIDO", desc=True).execute()
+        # Busca apenas colunas de filtro para ser extremamente leve
+        response = client.table("pedidos").select("CIDADE, ROTA").execute()
+        if response.data:
+            df = pd.DataFrame(response.data)
+            # Extrai únicos e remove vazios
+            cidades = sorted([str(x) for x in df["CIDADE"].unique() if x and str(x).strip() != ''])
+            rotas = sorted([str(x) for x in df["ROTA"].unique() if x and str(x).strip() != ''])
+            return cidades, rotas
+    except Exception:
+        pass
+    return [], []
+
+@st.cache_data(ttl=300)
+def buscar_pedidos_visualizacao():
+    """
+    Busca apenas colunas essenciais para indicadores visuais (Dashboard/KPIs).
+    OTIMIZAÇÃO: Removeu select("*") para reduzir tráfego de dados.
+    """
+    client = get_db_client()
+    try:
+        # Seleciona apenas o necessário para gráficos e contagens
+        cols = 'ID_PEDIDO, STATUS, PAGAMENTO, "DIA DA ENTREGA", "NOME CLIENTE"'
+        
+        response = client.table("pedidos").select(cols).order("ID_PEDIDO", desc=True).execute()
         if response.data:
             df = pd.DataFrame(response.data)
             return df
@@ -78,57 +106,64 @@ def buscar_pedidos_visualizacao():
     return pd.DataFrame()
 
 # --- HISTÓRICO ---
-def obter_resumo_historico(df_bruto, nome_cliente):
-    if df_bruto.empty or not nome_cliente:
-        return []
-    
-    df = df_bruto.copy()
-    col_nome = "NOME CLIENTE"
-    col_status = "STATUS"
-    col_id = "ID_PEDIDO"
-    
-    if col_nome not in df.columns:
+def obter_resumo_historico(nome_cliente, limite=5):
+    """
+    Busca o histórico de um cliente específico diretamente no banco.
+    """
+    if not nome_cliente:
         return []
 
-    nome_alvo = limpar_texto(nome_cliente)
-    df["_NOME_TEMP"] = df[col_nome].apply(limpar_texto)
-    df_cli = df[df["_NOME_TEMP"] == nome_alvo]
-    
-    if df_cli.empty:
+    client = get_db_client()
+    try:
+        nome_alvo = limpar_texto(nome_cliente)
+        
+        # OTIMIZAÇÃO: Seleciona apenas colunas exibidas no modal de histórico
+        cols = 'ID_PEDIDO, "DIA DA ENTREGA", STATUS, PEDIDO, OBSERVAÇÃO, PAGAMENTO, "NOME CLIENTE"'
+        
+        response = client.table("pedidos")\
+            .select(cols)\
+            .eq("NOME CLIENTE", nome_alvo)\
+            .order("ID_PEDIDO", desc=True)\
+            .limit(limite)\
+            .execute()
+
+        if not response.data:
+            return []
+
+        df_cli = pd.DataFrame(response.data)
+        
+        historico = []
+        for _, row in df_cli.iterrows():
+            data_str = "-"
+            val_data = row.get("DIA DA ENTREGA")
+            if pd.notnull(val_data):
+                data_str = str(val_data)
+            
+            desc = row.get("PEDIDO") or row.get("OBSERVAÇÃO") or "Sem descrição"
+            
+            item = {
+                "id": row.get("ID_PEDIDO", "?"),
+                "data": data_str,
+                "status": row.get("STATUS", "Desconhecido"),
+                "descricao": str(desc),
+                "pagamento": row.get("PAGAMENTO", "-")
+            }
+            historico.append(item)
+            
+        return historico
+
+    except Exception as e:
         return []
-
-    col_data = "DIA DA ENTREGA"
-    if col_data in df_cli.columns:
-        df_cli[col_data] = pd.to_datetime(df_cli[col_data], dayfirst=True, errors='coerce')
-        df_cli = df_cli.sort_values(col_data, ascending=False)
-
-    historico = []
-    for _, row in df_cli.iterrows():
-        data_str = "-"
-        if col_data in row and pd.notnull(row[col_data]):
-            try:
-                data_str = row[col_data].strftime("%d/%m/%Y")
-            except:
-                data_str = str(row[col_data])
-        
-        desc = row.get("PEDIDO") or row.get("OBSERVAÇÃO") or "Sem descrição"
-        
-        item = {
-            "id": row.get(col_id, "?"),
-            "data": data_str,
-            "status": row.get(col_status, "Desconhecido"),
-            "descricao": str(desc),
-            "pagamento": row.get("PAGAMENTO", "-")
-        }
-        historico.append(item)
-        
-    return historico
 
 # --- GRAVAÇÃO ---
 def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_escolhido, observacao="", nr_pedido="", usuario_logado="Sistema"):
     client = get_db_client()
+    
+    # LIMPEZA DE CACHE ESTRATÉGICA
     get_metricas.clear()
     listar_clientes.clear()
+    buscar_pedidos_visualizacao.clear()
+    listar_dados_filtros.clear() # Limpa filtros pois nova cidade/rota pode ter surgido
     
     nome_final = limpar_texto(nome)
     obs_final = limpar_texto(observacao)
@@ -140,18 +175,21 @@ def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_esc
     # 1. Gerar ID do Pedido
     novo_id = get_max_id("pedidos", "ID_PEDIDO") + 1
 
-    # 2. Buscar Dados do Cliente (Código, Cidade, Rota) - CORRIGIDO
+    # 2. Buscar Dados do Cliente
     cod_cliente = None
     cidade_dest = "NÃO DEFINIDO"
     rota_dest = "RETIRADA CD"
     
     try:
-        # Busca na tabela clientes pelo nome exato
-        resp_cli = client.table("clientes").select("*").eq("Cliente", nome).execute()
+        # Busca apenas os campos necessários para preencher o pedido
+        resp_cli = client.table("clientes")\
+            .select('"Código", "Nome Cidade", ROTA')\
+            .eq("Cliente", nome)\
+            .execute()
+            
         if resp_cli.data:
             d = resp_cli.data[0]
             cod_cliente = d.get("Código")
-            # Pega cidade e rota do cadastro, ou usa padrão se estiver vazio
             cidade_dest = d.get("Nome Cidade") or "NÃO DEFINIDO"
             rota_dest = d.get("ROTA") or "RETIRADA CD"
     except:
@@ -176,7 +214,6 @@ def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_esc
     try:
         client.table("pedidos").insert(dados_pedido).execute()
         
-        # Log
         log_entry = {
             "DATA_HORA": data_log,
             "ID_PEDIDO": novo_id,
@@ -194,6 +231,8 @@ def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_esc
 def atualizar_pedidos_editaveis(df_editado, usuario_logado="Sistema"):
     client = get_db_client()
     if df_editado.empty: return
+    
+    buscar_pedidos_visualizacao.clear()
 
     colunas_check = ["STATUS", "PAGAMENTO", "NR PEDIDO", "OBSERVAÇÃO"]
     
@@ -206,7 +245,10 @@ def atualizar_pedidos_editaveis(df_editado, usuario_logado="Sistema"):
     for _, row in df_editado.iterrows():
         pid = row["ID_PEDIDO"]
         try:
-            resp = client.table("pedidos").select("*").eq("ID_PEDIDO", pid).execute()
+            # Seleciona apenas as colunas que podem ser comparadas
+            cols = 'ID_PEDIDO, STATUS, PAGAMENTO, "NR PEDIDO", OBSERVAÇÃO'
+            resp = client.table("pedidos").select(cols).eq("ID_PEDIDO", pid).execute()
+            
             if not resp.data: continue
             
             atual_db = resp.data[0]
@@ -267,7 +309,7 @@ def criar_novo_cliente(nome, cidade, documento=""):
     except Exception as e:
         st.error(f"Erro ao criar cliente: {e}")
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def get_metricas(_hash_versao=None):
     client = get_db_client()
     try:
@@ -301,7 +343,10 @@ def get_estoque_filtrado(tag_inicio, tag_fim):
 
 def salvar_alteracoes_estoque(df_novo, usuario_logado):
     client = get_db_client()
+    
+    # Limpa cache de estoque e resumo global
     get_estoque_filtrado.clear()
+    get_resumo_global_salmao.clear()
     
     timestamp = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
     count_updates = 0
@@ -368,7 +413,7 @@ def registrar_subtag(id_pai, letra, cliente, peso, status, usuario_logado):
         st.error(f"Erro subtag: {e}")
         return False
 
-# --- FUNÇÃO NOVA: BUSCAR DETALHES DAS SUBTAGS ---
+# --- SUBTAGS ---
 def buscar_subtags_por_tag(tag_pai_id):
     client = get_db_client()
     try:
@@ -395,36 +440,74 @@ def get_consumo_tag(tag_pai_id):
     except Exception:
         return [], 0.0
 
+@st.cache_data(ttl=60)
 def get_resumo_global_salmao():
     client = get_db_client()
     try:
         response = client.table("estoque_salmao").select("Status").execute()
         dados = response.data
-        if not dados: return 0, 0, 0, 0, 0, 0
+        resp_backup = client.table("estoque_salmao_backup").select("*", count="exact", head=True).execute()
+        qtd_historico = resp_backup.count if resp_backup.count is not None else 0
+
+        if not dados: return 0, 0, qtd_historico, 0, 0, 0
+        
         df = pd.DataFrame(dados)
-        s = df["Status"].astype(str).str.strip().str.capitalize()
-        return len(df), len(s[s == "Livre"]), len(s[s == "Gerado"]), len(s[s == "Orçamento"]), len(s[s == "Reservado"]), len(s[s == "Aberto"])
-    except:
-        return 0, 0, 0, 0, 0
+        s = df["Status"].fillna("Livre").astype(str).str.strip().str.capitalize()
+        
+        ativos_gerado = len(s[s == "Gerado"])
+        total_gerado_real = ativos_gerado + qtd_historico
+
+        return (
+            len(df), 
+            len(s[s == "Livre"]), 
+            total_gerado_real, 
+            len(s[s == "Orçamento"]), 
+            len(s[s == "Reservado"]),
+            len(s[s == "Aberto"])
+        )
+    except Exception as e:
+        return 0, 0, 0, 0, 0, 0
 
 # --- PAGINAÇÃO PEDIDOS ---
-def buscar_pedidos_paginado(pagina_atual=1, tamanho_pagina=20):
+def buscar_pedidos_paginado(pagina_atual=1, tamanho_pagina=20, filtros=None):
+    """
+    Busca pedidos com paginação E filtros aplicados no Banco de Dados.
+    OTIMIZAÇÃO: Traz apenas colunas necessárias para o 'Gerenciar'.
+    """
     client = get_db_client()
     inicio = (pagina_atual - 1) * tamanho_pagina
     fim = inicio + tamanho_pagina - 1
     
     try:
-        response = client.table("pedidos")\
-            .select("*", count="exact")\
-            .order("ID_PEDIDO", desc=True)\
-            .range(inicio, fim)\
-            .execute()
+        # Colunas estritamente necessárias para a tabela de gestão
+        cols = 'ID_PEDIDO, "COD CLIENTE", "NOME CLIENTE", CIDADE, STATUS, "DIA DA ENTREGA", PEDIDO, PAGAMENTO, "NR PEDIDO", OBSERVAÇÃO, ROTA'
+        
+        query = client.table("pedidos").select(cols, count="exact")
+        
+        if filtros:
+            if filtros.get("status") and len(filtros["status"]) > 0:
+                query = query.in_("STATUS", filtros["status"])
+            
+            if filtros.get("cidade") and len(filtros["cidade"]) > 0:
+                query = query.in_("CIDADE", filtros["cidade"])
+                
+            if filtros.get("rota") and len(filtros["rota"]) > 0:
+                query = query.in_("ROTA", filtros["rota"])
+        
+        response = query.order("ID_PEDIDO", desc=True).range(inicio, fim).execute()
             
         total_registros = response.count if response.count is not None else 0
         df = pd.DataFrame(response.data)
+        
         if df.empty:
-            df = pd.DataFrame(columns=["ID_PEDIDO", "COD CLIENTE", "NOME CLIENTE", "CIDADE", "STATUS", "DIA DA ENTREGA", "PEDIDO"])
+            df = pd.DataFrame(columns=[
+                "ID_PEDIDO", "COD CLIENTE", "NOME CLIENTE", "CIDADE", 
+                "STATUS", "DIA DA ENTREGA", "PEDIDO", "PAGAMENTO", 
+                "NR PEDIDO", "OBSERVAÇÃO", "ROTA"
+            ])
+            
         return df, total_registros
+        
     except Exception as e:
         st.error(f"Erro na paginação: {e}")
         return pd.DataFrame(), 0
@@ -436,8 +519,11 @@ def buscar_clientes_paginado(pagina_atual=1, tamanho_pagina=20):
     fim = inicio + tamanho_pagina - 1
     
     try:
+        # OTIMIZAÇÃO: Traz apenas dados da tabela (sem metadados extras)
+        cols = '"Código", Cliente, "Nome Cidade", "CPF/CNPJ", ROTA'
+        
         response = client.table("clientes")\
-            .select("*", count="exact")\
+            .select(cols, count="exact")\
             .order("Cliente", desc=False)\
             .range(inicio, fim)\
             .execute()
@@ -463,6 +549,7 @@ def arquivar_tags_geradas(ids_tags, usuario_logado="Sistema"):
     
     # Limpa o cache para garantir atualização imediata
     get_estoque_filtrado.clear()
+    get_resumo_global_salmao.clear() # Limpa métricas globais
     
     # RESET TOTAL: Agora incluindo o Status como None
     dados_reset = {
@@ -505,42 +592,3 @@ def arquivar_tags_geradas(ids_tags, usuario_logado="Sistema"):
     except Exception as e:
         st.error(f"Erro ao processar: {e}")
         return False
-
-# No arquivo services/database.py
-
-def get_resumo_global_salmao():
-    """Retorna métricas somando o Histórico (Backup) + Ativos."""
-    client = get_db_client()
-    try:
-        # 1. Busca dados da tabela ATUAL (O que está na mesa)
-        response = client.table("estoque_salmao").select("Status").execute()
-        dados = response.data
-        
-        # 2. Busca contagem do HISTÓRICO (O que já foi finalizado/arquivado)
-        # O parâmetro head=True conta rápido sem baixar os dados
-        resp_backup = client.table("estoque_salmao_backup").select("*", count="exact", head=True).execute()
-        qtd_historico = resp_backup.count if resp_backup.count is not None else 0
-
-        # Se não tiver dados ativos, retorna zeros, mas mantém o histórico do Gerado
-        if not dados: return 0, 0, qtd_historico, 0, 0, 0
-        
-        df = pd.DataFrame(dados)
-        s = df["Status"].fillna("Livre").astype(str).str.strip().str.capitalize()
-        
-        # 3. Calcula os ativos atuais
-        ativos_gerado = len(s[s == "Gerado"])
-        
-        # 4. SOMA TUDO: O que está na tela + O que já foi guardado
-        total_gerado_real = ativos_gerado + qtd_historico
-
-        return (
-            len(df), 
-            len(s[s == "Livre"]), 
-            total_gerado_real, # <--- Agora exibe a soma total!
-            len(s[s == "Orçamento"]), 
-            len(s[s == "Reservado"]),
-            len(s[s == "Aberto"])
-        )
-    except Exception as e:
-        # Em caso de erro, retorna tudo zerado para não quebrar a tela
-        return 0, 0, 0, 0, 0, 0

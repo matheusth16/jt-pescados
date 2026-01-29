@@ -7,6 +7,48 @@ import ui.components as components
 import ui.styles as styles
 from core.config import LISTA_STATUS, LISTA_PAGAMENTO
 
+# --- FUNÇÃO DE CACHE LOCAL ---
+@st.cache_data(ttl=300, show_spinner=False)
+def carregar_clientes_cache(_hash_versao):
+    """
+    Busca a tabela de clientes otimizada e mantém em cache por 5 min.
+    O parâmetro _hash_versao força a atualização se houver mudanças.
+    """
+    try:
+        client = db.get_db_client()
+        response = client.table("clientes").select('Cliente, "Nome Cidade", ROTA').execute()
+        
+        if response.data:
+            df = pd.DataFrame(response.data)
+            df.columns = [str(c).strip() for c in df.columns]
+            return df
+    except Exception:
+        pass
+    return pd.DataFrame()
+
+# --- NOVO: FRAGMENTO DE ITENS DO PEDIDO ---
+@st.fragment
+def painel_itens_pedido(cli, dt, rota_cli, pg, stt, cor_principal, form_id):
+    """
+    Isola a área de digitação e preview para evitar recarregamento total da página.
+    """
+    st.markdown("#### 3️⃣ Itens do Pedido")
+    desc = st.text_area(
+        "Descrição (Quantidade e Produtos):", 
+        height=150, 
+        placeholder="Ex: 10kg de Tilápia...", 
+        key=f"de_{form_id}"
+    )
+    
+    if desc:
+        st.markdown("---")
+        components.render_preview_card(cli, dt, rota_cli, pg, stt, cor_principal)
+        st.markdown("<br>", unsafe_allow_html=True)
+    else:
+        st.caption("📝 *Preencha a descrição dos itens para liberar o botão de cadastro.*")
+        
+    return desc
+
 def render_page(hash_dados, perfil, nome_user):
     # Aplica estilos para pegar a cor principal
     cores = styles.aplicar_estilos(perfil)
@@ -14,24 +56,12 @@ def render_page(hash_dados, perfil, nome_user):
 
     st.markdown("### 📝 Novo Pedido")
     
-    # --- CONTROLE DE ESTADO DO MODAL (AQUI ESTÁ A CORREÇÃO) ---
-    # Essa variável garante que o modal fique aberto até mandarmos fechar
+    # --- CONTROLE DE ESTADO DO MODAL ---
     if "show_modal_confirmar" not in st.session_state:
         st.session_state.show_modal_confirmar = False
 
-    # Inicializa DataFrame vazio como fallback
-    df_clientes_completo = pd.DataFrame() 
-    
-    try:
-        # Busca dados no Supabase para pegar Cidade e Rota
-        client = db.get_db_client()
-        response = client.table("clientes").select("*").execute()
-        
-        if response.data:
-            df_clientes_completo = pd.DataFrame(response.data)
-            df_clientes_completo.columns = [str(c).strip() for c in df_clientes_completo.columns]
-    except Exception:
-        pass
+    # --- 1. BUSCA OTIMIZADA DE CLIENTES (CACHE) ---
+    df_clientes_completo = carregar_clientes_cache(hash_dados)
 
     lista_nomes = []
     if not df_clientes_completo.empty:
@@ -45,7 +75,6 @@ def render_page(hash_dados, perfil, nome_user):
     # --- FUNÇÃO DO MODAL (CARD CENTRO DA TELA) ---
     @st.dialog("📋 Confirmar Detalhes do Pedido")
     def modal_confirmacao():
-        # Inicializa variáveis internas se não existirem
         if "m_editando" not in st.session_state:
             st.session_state.m_editando = False
             
@@ -77,10 +106,14 @@ def render_page(hash_dados, perfil, nome_user):
                                 nr_pedido=st.session_state.m_nr, 
                                 usuario_logado=nome_user
                             )
+                            
+                            # Limpa o cache local
+                            carregar_clientes_cache.clear()
+                            
                             st.toast(f"✅ Pedido salvo com sucesso!", icon="🎉")
                             time.sleep(1.5)
                             
-                            # Limpa variáveis e fecha o modal
+                            # Limpa variáveis
                             for key in ["m_cli", "m_dt", "m_pg", "m_stt", "m_nr", "m_desc", "m_editando", "show_modal_confirmar"]:
                                 if key in st.session_state: del st.session_state[key]
                             
@@ -98,8 +131,6 @@ def render_page(hash_dados, perfil, nome_user):
         else:
             st.markdown("### ✏️ Editar Informações")
             
-            # Recria os campos para edição
-            # Garante que o índice existe na lista, senão usa 0
             idx_cli = lista_nomes.index(st.session_state.m_cli) if st.session_state.m_cli in lista_nomes else 0
             st.session_state.m_cli = st.selectbox("Cliente", lista_nomes, index=idx_cli, key="ed_cli")
             
@@ -164,14 +195,12 @@ def render_page(hash_dados, perfil, nome_user):
                     st.session_state[key_limit] = 5 
                 
                 try:
-                    df_hist_bruto = db.buscar_pedidos_visualizacao()
-                    itens_historico = db.obter_resumo_historico(df_hist_bruto, cliente_nome)
-                    
-                    total_itens = len(itens_historico)
                     limite_atual = st.session_state[key_limit]
+                    itens_historico = db.obter_resumo_historico(cliente_nome, limite=limite_atual + 1)
+                    itens_exibir = itens_historico[:limite_atual]
 
-                    if itens_historico:
-                        for item in itens_historico[:limite_atual]:
+                    if itens_exibir:
+                        for item in itens_exibir:
                             components.render_history_item(
                                 id_ped=item['id'],
                                 data=item['data'],
@@ -180,9 +209,8 @@ def render_page(hash_dados, perfil, nome_user):
                                 pagamento=item['pagamento']
                             )
                         
-                        restante = total_itens - limite_atual
-                        if restante > 0:
-                            st.info(f"Ainda existem {restante} pedidos mais antigos.")
+                        if len(itens_historico) > limite_atual:
+                            st.info("Existem pedidos mais antigos.")
                             if st.button("🔄 Carregar mais antigos", use_container_width=True):
                                 st.session_state[key_limit] += 5 
                                 st.rerun()
@@ -229,25 +257,21 @@ def render_page(hash_dados, perfil, nome_user):
             nr_ped = st.text_input("Digite o NR do Pedido:", placeholder="Ex: 12345", key=f"nr_{st.session_state.form_id}")
 
         st.divider()
-        st.markdown("#### 3️⃣ Itens do Pedido")
-        desc = st.text_area("Descrição (Quantidade e Produtos):", height=150, placeholder="Ex: 10kg de Tilápia...", key=f"de_{st.session_state.form_id}")
         
-        if desc:
-            st.markdown("---")
-            components.render_preview_card(cli, dt, rota_cli, pg, stt, cor_principal)
-            st.markdown("<br>", unsafe_allow_html=True)
-        else:
-            st.caption("📝 *Preencha a descrição dos itens para liberar o botão de cadastro.*")
+        # --- AQUI: CHAMADA DO FRAGMENTO ISOLADO ---
+        # Substitui a renderização direta para ganhar performance na digitação
+        desc = painel_itens_pedido(
+            cli, dt, rota_cli, pg, stt, cor_principal, st.session_state.form_id
+        )
         
         c_btn1, c_btn2 = st.columns([3, 1])
         
         with c_btn1:
-            # BOTÃO GATILHO: SÓ DEFINE QUE O MODAL DEVE ABRIR
             if st.button("🚀 CADASTRAR PEDIDO", type="primary", use_container_width=True):
+                # O valor de 'desc' vem do retorno do fragmento
                 if not desc.strip():
                     st.error("⚠️ Digite os itens do pedido antes de cadastrar!")
                 else:
-                    # Salva os dados no estado e ativa a flag do modal
                     st.session_state.m_cli = cli
                     st.session_state.m_dt = dt
                     st.session_state.m_pg = pg
@@ -262,6 +286,5 @@ def render_page(hash_dados, perfil, nome_user):
                 st.session_state.form_id += 1
                 st.rerun()
 
-    # --- VERIFICAÇÃO FINAL: SE A VARIÁVEL ESTIVER TRUE, ABRE O MODAL ---
     if st.session_state.show_modal_confirmar:
         modal_confirmacao()

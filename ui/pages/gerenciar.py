@@ -1,7 +1,7 @@
 import streamlit as st
 import time
 import math
-import io # <--- IMPORT NOVO OBRIGATÓRIO
+import io 
 import pandas as pd
 import services.database as db
 import ui.components as components
@@ -102,50 +102,52 @@ def mostrar_detalhes_pedido(row, perfil, nome_user):
                 except Exception as e:
                     st.error(f"Erro ao atualizar: {e}")
 
-def render_page(hash_dados, perfil, nome_user):
-    if "gerenciar_editor_key" not in st.session_state:
-        st.session_state.gerenciar_editor_key = 0
-    if "pedido_para_visualizar" not in st.session_state:
-        st.session_state.pedido_para_visualizar = None
+# --- NOVO: FRAGMENTO DA TABELA DE GESTÃO ---
+@st.fragment
+def tabela_gestao_interativa(perfil, nome_user):
+    """
+    Isola a tabela, filtros e paginação. 
+    Interagir aqui NÃO recarrega o restante da página (cabeçalho, menu, etc).
+    """
+    # 1. PREPARAÇÃO DOS FILTROS
+    opts_cid, opts_rota = db.listar_dados_filtros()
 
-    titulo = "👁️ Visão Geral" if perfil == "Admin" else "🚚 Painel de Operações"
-    st.subheader(titulo)
-    
-    if "pag_atual_gerenciar" not in st.session_state:
-        st.session_state["pag_atual_gerenciar"] = 1
-        
+    with st.expander("🔍 Filtros de Busca (Processamento no Servidor)", expanded=True):
+        c_f1, c_f2, c_f3, c_f4 = st.columns(4)
+        with c_f1: f_status = st.multiselect("Status:", LISTA_STATUS)
+        with c_f2:
+            f_data = st.date_input("Período (Filtro Local):", value=[], format="DD/MM/YYYY") 
+        with c_f3: f_cidade = st.multiselect("Cidade:", opts_cid)
+        with c_f4: f_rota = st.multiselect("Rota:", opts_rota)
+
+    filtros_db = {}
+    if f_status: filtros_db["status"] = f_status
+    if f_cidade: filtros_db["cidade"] = f_cidade
+    if f_rota: filtros_db["rota"] = f_rota
+
+    # 2. BUSCA PAGINADA
     TAMANHO_PAGINA = 20
-    df_gestao, total_registros = db.buscar_pedidos_paginado(st.session_state["pag_atual_gerenciar"], TAMANHO_PAGINA)
+    df_gestao, total_registros = db.buscar_pedidos_paginado(
+        pagina_atual=st.session_state["pag_atual_gerenciar"], 
+        tamanho_pagina=TAMANHO_PAGINA,
+        filtros=filtros_db
+    )
+    
     total_paginas = math.ceil(total_registros / TAMANHO_PAGINA) if TAMANHO_PAGINA > 0 else 1
 
     if not df_gestao.empty:
         df_gestao.columns = [c.upper().strip() for c in df_gestao.columns]
-
-        with st.expander("🔍 Filtros de Busca", expanded=True):
-            c_f1, c_f2, c_f3, c_f4 = st.columns(4)
-            with c_f1: f_status = st.multiselect("Status:", LISTA_STATUS)
-            with c_f2:
-                col_dt = next((c for c in df_gestao.columns if "ENTREGA" in c), None)
-                f_data = st.date_input("Período:", value=[], format="DD/MM/YYYY") if col_dt else None
-            with c_f3:
-                opts_cid = sorted(df_gestao["CIDADE"].astype(str).unique()) if "CIDADE" in df_gestao.columns else []
-                f_cidade = st.multiselect("Cidade:", opts_cid)
-            with c_f4:
-                opts_rota = sorted(df_gestao["ROTA"].astype(str).unique()) if "ROTA" in df_gestao.columns else []
-                f_rota = st.multiselect("Rota:", opts_rota)
-
-        df_display = df_gestao.copy()
         
-        if f_status: df_display = df_display[df_display["STATUS"].isin(f_status)]
-        if f_cidade and "CIDADE" in df_display.columns: df_display = df_display[df_display["CIDADE"].astype(str).isin(f_cidade)]
-        if f_rota and "ROTA" in df_display.columns: df_display = df_display[df_display["ROTA"].astype(str).isin(f_rota)]
-        if f_data and col_dt and len(f_data) == 2:
+        # 3. FILTRO DE DATA (LOCAL)
+        df_display = df_gestao.copy()
+        col_dt_display = next((c for c in df_display.columns if "ENTREGA" in c), None)
+        
+        if f_data and col_dt_display and len(f_data) == 2:
             ini, fim = f_data
-            dts = pd.to_datetime(df_display[col_dt], dayfirst=True, errors='coerce').dt.date
+            dts = pd.to_datetime(df_display[col_dt_display], dayfirst=True, errors='coerce').dt.date
             df_display = df_display[(dts >= ini) & (dts <= fim)]
 
-        # --- BOTÃO DE EXPORTAÇÃO (NOVO) ---
-        # Exporta ANTES de adicionar colunas de controle visual
+        # 4. EXPORTAÇÃO
         with st.container():
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
@@ -158,8 +160,8 @@ def render_page(hash_dados, perfil, nome_user):
                 mime="application/vnd.ms-excel",
                 type="secondary"
             )
-        # ----------------------------------
 
+        # 5. TABELA INTERATIVA
         cfg_visual = {
             "ID_PEDIDO": st.column_config.NumberColumn("🆔 ID", format="%d", width="small"),
             "COD CLIENTE": st.column_config.NumberColumn("🔢 Cód.", format="%d", width="small"),
@@ -196,17 +198,14 @@ def render_page(hash_dados, perfil, nome_user):
             key=f"editor_geral_{st.session_state.gerenciar_editor_key}"
         )
 
+        # Lógica de Seleção (Força Rerun GLOBAL para abrir Modal)
         linhas_selecionadas = df_editado[df_editado["VER"] == True]
         if not linhas_selecionadas.empty:
             st.session_state.pedido_para_visualizar = linhas_selecionadas.iloc[0]
             st.session_state.gerenciar_editor_key += 1
             st.rerun()
 
-        if st.session_state.pedido_para_visualizar is not None:
-            pedido_visto = st.session_state.pedido_para_visualizar
-            st.session_state.pedido_para_visualizar = None 
-            mostrar_detalhes_pedido(pedido_visto, perfil, nome_user)
-        
+        # Paginação dentro do fragmento
         if total_paginas > 1:
             st.markdown("---")
             nova_pagina = components.render_pagination(st.session_state["pag_atual_gerenciar"], total_paginas)
@@ -215,4 +214,24 @@ def render_page(hash_dados, perfil, nome_user):
                 st.rerun()
             
     else:
-        st.info("Nenhum pedido encontrado nesta página.")
+        st.info("Nenhum pedido encontrado com os filtros selecionados.")
+
+def render_page(hash_dados, perfil, nome_user):
+    if "gerenciar_editor_key" not in st.session_state:
+        st.session_state.gerenciar_editor_key = 0
+    if "pedido_para_visualizar" not in st.session_state:
+        st.session_state.pedido_para_visualizar = None
+    if "pag_atual_gerenciar" not in st.session_state:
+        st.session_state["pag_atual_gerenciar"] = 1
+
+    titulo = "👁️ Visão Geral" if perfil == "Admin" else "🚚 Painel de Operações"
+    st.subheader(titulo)
+    
+    # CHAMADA DO FRAGMENTO ISOLADO
+    tabela_gestao_interativa(perfil, nome_user)
+
+    # MODAL (Fora do fragmento para garantir contexto correto de sobreposição)
+    if st.session_state.pedido_para_visualizar is not None:
+        pedido_visto = st.session_state.pedido_para_visualizar
+        st.session_state.pedido_para_visualizar = None 
+        mostrar_detalhes_pedido(pedido_visto, perfil, nome_user)

@@ -23,19 +23,25 @@ def render_page(hash_dados, perfil):
     if not filtro_tempo: filtro_tempo = "Tudo"
     st.markdown("---")
 
+    # OTIMIZAÇÃO: Usa a função com cache (TTL 5min) e Colunas Selecionadas (Leve)
     df_bruto = db.buscar_pedidos_visualizacao()
     
     if not df_bruto.empty:
-        # Padroniza colunas para evitar erros de maiúsculas/minúsculas
-        df_bruto.columns = [c.upper().strip() for c in df_bruto.columns]
-        col_dt = next((c for c in df_bruto.columns if "ENTREGA" in c), None)
-
+        # Cria cópia imediata para não alterar o objeto em cache durante os filtros
         df_dash = df_bruto.copy()
+        
+        # Padroniza colunas para evitar erros de maiúsculas/minúsculas vindas do banco
+        df_dash.columns = [c.upper().strip() for c in df_dash.columns]
+        
+        # Localiza a coluna de data (geralmente "DIA DA ENTREGA")
+        col_dt = next((c for c in df_dash.columns if "ENTREGA" in c), None)
+
         if col_dt:
-            # Garante conversão de data compatível com Supabase
+            # Garante conversão de data (String -> Datetime) para filtros locais
             df_dash[col_dt] = pd.to_datetime(df_dash[col_dt], dayfirst=True, errors='coerce')
             hoje = pd.Timestamp.now().normalize()
             
+            # Filtros de Data (Processamento Local pois o banco armazena como texto DD/MM/YYYY)
             if filtro_tempo == "Hoje":
                 df_dash = df_dash[df_dash[col_dt] == hoje]
             elif filtro_tempo == "Últimos 7 Dias":
@@ -110,6 +116,7 @@ def render_page(hash_dados, perfil):
         st.markdown("#### Resumo da Operação")
         c1, c2, c3 = st.columns(3)
         with c1:
+            # Cálculo seguro mesmo se a coluna não existir (embora deva existir)
             entregues = len(df_dash[df_dash["STATUS"] == "ENTREGUE"]) if "STATUS" in df_dash.columns else 0
             pct_saude = (entregues / total_pedidos * 100) if total_pedidos > 0 else 0
             classe_cor = "saude-baixa" if pct_saude < 50 else "saude-media" if pct_saude < 80 else "saude-alta"
@@ -172,7 +179,7 @@ def render_page(hash_dados, perfil):
                 top_clientes = df_dash["NOME CLIENTE"].value_counts().reset_index().head(5)
                 top_clientes.columns = ["CLIENTE", "QTD"]
                 
-                # CORREÇÃO DO ERRO 4.0: Força conversão para texto
+                # Garante que o nome seja string para evitar erro no st.data_editor
                 top_clientes["CLIENTE"] = top_clientes["CLIENTE"].astype(str)
                 
                 max_pedidos = top_clientes["QTD"].max() if not top_clientes.empty else 1

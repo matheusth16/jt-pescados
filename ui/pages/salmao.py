@@ -22,6 +22,38 @@ def highlight_status_salmao(val):
         return f'background-color: {cor}; color: {cor_texto}; font-weight: 600;'
     return ''
 
+# --- CACHE ESTRATÉGICO: PROCESSAMENTO VISUAL ---
+@st.cache_data(show_spinner=False)
+def preparar_dataframe_view(df_input):
+    """
+    Realiza a limpeza e conversão de tipos do DataFrame para exibição.
+    Cacheado para evitar reprocessamento a cada rerun da interface.
+    """
+    if df_input.empty:
+        return df_input
+        
+    df_view = df_input.copy()
+    
+    # Sanitização de Textos (Remove None/Nan)
+    cols_texto = ["Calibre", "Cliente", "Fornecedor"]
+    for c in cols_texto:
+        if c in df_view.columns:
+            df_view[c] = df_view[c].fillna("").astype(str).replace("None", "").replace("nan", "")
+    
+    # Sanitização de Status
+    if "Status" in df_view.columns:
+        df_view["Status"] = df_view["Status"].fillna("Livre").astype(str).replace("None", "Livre").replace("nan", "Livre").replace("", "Livre")
+    
+    # Sanitização Numérica
+    if "Peso" in df_view.columns:
+        df_view["Peso"] = pd.to_numeric(df_view["Peso"], errors='coerce').fillna(0.0)
+        
+    # Conversão de Datas
+    if "Validade" in df_view.columns:
+        df_view["Validade"] = pd.to_datetime(df_view["Validade"], format="%d/%m/%Y", errors="coerce")
+        
+    return df_view
+
 # --- 2. MODAL UNIFICADO ---
 @st.dialog("🐟 Detalhes da Tag")
 def modal_detalhes_tag(row_dict, perfil, nome_user, range_atual):
@@ -60,7 +92,7 @@ def modal_detalhes_tag(row_dict, perfil, nome_user, range_atual):
 
     st.divider()
 
-    # --- SUBTAGS ---
+    # --- SUBTAGS (Sem cache local pois é altamente dinâmico) ---
     df_sub = db.buscar_subtags_por_tag(tag_id)
     if not df_sub.empty:
         st.caption("🧱 Histórico de Fracionamento (Subtags)")
@@ -161,6 +193,7 @@ def modal_detalhes_tag(row_dict, perfil, nome_user, range_atual):
                             ok = db.registrar_subtag(tag_id, letra_limpa, novo_cli_sub, novo_peso_sub, "Livre", nome_user)
                             if ok:
                                 st.success("Unidade criada e Tag Pai atualizada!")
+                                # Atualiza o cache local forçando busca nova
                                 if range_atual:
                                     st.session_state.salmao_df = db.get_estoque_filtrado(range_atual[0], range_atual[1])
                                 time.sleep(0.5)
@@ -215,6 +248,8 @@ def modal_detalhes_tag(row_dict, perfil, nome_user, range_atual):
                     "Cliente": m_cli, 
                     "Fornecedor": m_forn
                 }])
+                
+                # Salva e limpa os caches relevantes
                 db.salvar_alteracoes_estoque(df_up, nome_user)
                 
                 if str(novo_status).strip().upper() == "GERADO":
@@ -223,6 +258,7 @@ def modal_detalhes_tag(row_dict, perfil, nome_user, range_atual):
 
                 st.success("Atualizado com sucesso!")
                 
+                # Atualiza sessão com dados frescos do banco
                 if range_atual:
                         st.session_state.salmao_df = db.get_estoque_filtrado(range_atual[0], range_atual[1])
                 
@@ -231,6 +267,87 @@ def modal_detalhes_tag(row_dict, perfil, nome_user, range_atual):
                 st.session_state.salmao_editor_key += 1
                 st.session_state.tag_para_visualizar = None 
                 st.rerun()
+
+# --- NOVO: FRAGMENTO DA TABELA (Interface Isolada) ---
+@st.fragment
+def painel_tabela_interativa(df_base, perfil, range_str):
+    """
+    Fragmento que isola a tabela e seus filtros do resto da página.
+    Interações aqui (como filtrar) NÃO recarregam o script inteiro.
+    """
+    # OTIMIZAÇÃO: Usa a função de cache local para evitar reprocessamento do DF
+    df_view = preparar_dataframe_view(df_base)
+
+    with st.expander("🌪️ Filtros Avançados", expanded=False):
+        c_f1, c_f2 = st.columns(2)
+        with c_f1: 
+            cal_ops = sorted([str(x) for x in df_view["Calibre"].unique() if x])
+            f_cal = st.multiselect("Calibre", cal_ops)
+        with c_f2:
+            forn_ops = sorted([str(x) for x in df_view["Fornecedor"].unique() if x])
+            f_forn = st.multiselect("Fornecedor", forn_ops)
+            
+        # Filtro Pandas (Local) - Rápido para <200 linhas
+        if f_cal: df_view = df_view[df_view["Calibre"].astype(str).isin(f_cal)]
+        if f_forn: df_view = df_view[df_view["Fornecedor"].astype(str).isin(f_forn)]
+
+    st.markdown(f"### 📋 Tabela Geral: {range_str}")
+    
+    with st.container():
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            df_view.to_excel(writer, index=False, sheet_name='Salmao')
+        
+        st.download_button(
+            label="📥 Baixar Tabela em Excel",
+            data=buffer,
+            file_name=f"estoque_salmao_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
+            mime="application/vnd.ms-excel",
+            type="secondary"
+        )
+
+    cfg_colunas = {
+        "Tag": st.column_config.NumberColumn("Tag", format="%d", width="small"),
+        "Calibre": st.column_config.TextColumn("Calibre", width="small"),
+        "Status": st.column_config.TextColumn("Status", width="small"),
+        "Peso": st.column_config.NumberColumn("Peso (kg)", format="%.2f", width="small"),
+        "Validade": st.column_config.DateColumn("Validade", format="DD/MM/YYYY"),
+        "Cliente": st.column_config.TextColumn("Cliente", width="medium"),
+        "Fornecedor": st.column_config.TextColumn("Fornecedor", width="medium")
+    }
+    
+    travadas = list(cfg_colunas.keys())
+    df_view.insert(0, "VER", False)
+    cfg_colunas["VER"] = st.column_config.CheckboxColumn("Editar" if perfil != "Admin" else "Ver", width="small")
+
+    df_styled = df_view.style.map(highlight_status_salmao, subset=["Status"])
+
+    tabela = st.data_editor(
+        df_styled,
+        key=f"editor_salmao_{st.session_state.salmao_editor_key}",
+        use_container_width=True, 
+        height=500, 
+        hide_index=True,
+        column_config=cfg_colunas, 
+        disabled=travadas
+    )
+
+    # Detecção de Clique (Seleção)
+    selecionado = tabela[tabela["VER"] == True]
+    if not selecionado.empty:
+        dados_linha = selecionado.iloc[0].to_dict()
+        
+        # Formatação segura de validade para o modal
+        val_validade = dados_linha.get('Validade')
+        if pd.notna(val_validade) and hasattr(val_validade, 'strftime'):
+            dados_linha['Validade'] = val_validade.strftime("%d/%m/%Y")
+        else:
+            dados_linha['Validade'] = ""
+
+        st.session_state.tag_para_visualizar = dados_linha
+        st.session_state.salmao_editor_key += 1 
+        # Força rerun GLOBAL para abrir o modal fora do fragmento
+        st.rerun()
 
 def render_page(hash_dados, perfil, nome_user):
     if "salmao_editor_key" not in st.session_state:
@@ -242,12 +359,13 @@ def render_page(hash_dados, perfil, nome_user):
 
     st.subheader("🐟 Recebimento de Salmão")
     
+    # OTIMIZAÇÃO: Usa a função cacheada (TTL 60s) para métricas globais
     qtd_total, qtd_livre, qtd_gerado, qtd_orc, qtd_reservado, qtd_aberto = db.get_resumo_global_salmao()
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
     
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
     with m1: components.render_metric_card("📦 Total", qtd_total, "#8b949e")
     with m2: components.render_metric_card("✅ Livre", qtd_livre, "#11734b")
-    with m3: components.render_metric_card("✂️ Aberto", qtd_aberto, "#473822") # <--- NOVO CARD AQUI
+    with m3: components.render_metric_card("✂️ Aberto", qtd_aberto, "#473822")
     with m4: components.render_metric_card("⚙️ Gerado", qtd_gerado, "#ff8500")
     with m5: components.render_metric_card("📝 Orçamento", qtd_orc, "#e8eaed")
     with m6: components.render_metric_card("🔵 Reservado", qtd_reservado, "#0a53a8")
@@ -268,92 +386,21 @@ def render_page(hash_dados, perfil, nome_user):
         elif tag_end < tag_start: st.error("Erro no Intervalo.")
         else:
             with st.spinner("Buscando..."):
+                # Busca do banco (Função cacheada no database.py)
                 st.session_state.salmao_df = db.get_estoque_filtrado(tag_start, tag_end)
                 st.session_state.salmao_range_str = f"Tags {tag_start} a {tag_end}"
                 st.session_state.range_salmao_atual = (tag_start, tag_end)
 
     if not st.session_state.salmao_df.empty:
-        df_view = st.session_state.salmao_df.copy()
-        
-        # --- SANITIZAÇÃO VISUAL ---
-        cols_texto = ["Calibre", "Cliente", "Fornecedor"]
-        for c in cols_texto:
-            df_view[c] = df_view[c].fillna("").astype(str).replace("None", "").replace("nan", "")
-        
-        df_view["Status"] = df_view["Status"].fillna("Livre").astype(str).replace("None", "Livre").replace("nan", "Livre").replace("", "Livre")
-        df_view["Peso"] = df_view["Peso"].fillna(0.0)
-        df_view["Validade"] = pd.to_datetime(df_view["Validade"], format="%d/%m/%Y", errors="coerce")
-        # --------------------------
-
-        with st.expander("🌪️ Filtros Avançados", expanded=False):
-            c_f1, c_f2 = st.columns(2)
-            with c_f1: 
-                cal_ops = sorted([str(x) for x in df_view["Calibre"].unique() if x])
-                f_cal = st.multiselect("Calibre", cal_ops)
-            with c_f2:
-                forn_ops = sorted([str(x) for x in df_view["Fornecedor"].unique() if x])
-                f_forn = st.multiselect("Fornecedor", forn_ops)
-            if f_cal: df_view = df_view[df_view["Calibre"].astype(str).isin(f_cal)]
-            if f_forn: df_view = df_view[df_view["Fornecedor"].astype(str).isin(f_forn)]
-
-        st.markdown(f"### 📋 Tabela Geral: {st.session_state.salmao_range_str}")
-        
-        with st.container():
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                df_view.to_excel(writer, index=False, sheet_name='Salmao')
-            
-            st.download_button(
-                label="📥 Baixar Tabela em Excel",
-                data=buffer,
-                file_name=f"estoque_salmao_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
-                mime="application/vnd.ms-excel",
-                type="secondary"
-            )
-
-        cfg_colunas = {
-            "Tag": st.column_config.NumberColumn("Tag", format="%d", width="small"),
-            "Calibre": st.column_config.TextColumn("Calibre", width="small"),
-            "Status": st.column_config.TextColumn("Status", width="small"),
-            "Peso": st.column_config.NumberColumn("Peso (kg)", format="%.2f", width="small"),
-            "Validade": st.column_config.DateColumn("Validade", format="DD/MM/YYYY"),
-            "Cliente": st.column_config.TextColumn("Cliente", width="medium"),
-            "Fornecedor": st.column_config.TextColumn("Fornecedor", width="medium")
-        }
-        
-        travadas = list(cfg_colunas.keys())
-        df_view.insert(0, "VER", False)
-        cfg_colunas["VER"] = st.column_config.CheckboxColumn("Editar" if perfil != "Admin" else "Ver", width="small")
-
-        df_styled = df_view.style.map(highlight_status_salmao, subset=["Status"])
-
-        tabela = st.data_editor(
-            df_styled,
-            key=f"editor_salmao_{st.session_state.salmao_editor_key}",
-            use_container_width=True, 
-            height=500, 
-            hide_index=True,
-            column_config=cfg_colunas, 
-            disabled=travadas
+        # CHAMADA DO FRAGMENTO ISOLADO
+        # Passamos os dados necessários para o fragmento renderizar a tabela
+        painel_tabela_interativa(
+            st.session_state.salmao_df, 
+            perfil, 
+            st.session_state.salmao_range_str
         )
 
-        selecionado = tabela[tabela["VER"] == True]
-        if not selecionado.empty:
-            dados_linha = selecionado.iloc[0].to_dict()
-            
-            # --- CORREÇÃO: Verifica se não é NaT antes de formatar ---
-            val_validade = dados_linha.get('Validade')
-            if pd.notna(val_validade) and hasattr(val_validade, 'strftime'):
-                dados_linha['Validade'] = val_validade.strftime("%d/%m/%Y")
-            else:
-                # Se for NaT ou vazio, definimos como string vazia para não quebrar o modal
-                dados_linha['Validade'] = ""
-            # ---------------------------------------------------------
-
-            st.session_state.tag_para_visualizar = dados_linha
-            st.session_state.salmao_editor_key += 1 
-            st.rerun()
-
+        # Modal é chamado no nível da página (fora do fragmento) para garantir contexto correto
         if st.session_state.tag_para_visualizar is not None:
             modal_detalhes_tag(
                 st.session_state.tag_para_visualizar, 
