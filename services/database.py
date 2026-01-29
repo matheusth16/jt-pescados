@@ -400,10 +400,10 @@ def get_resumo_global_salmao():
     try:
         response = client.table("estoque_salmao").select("Status").execute()
         dados = response.data
-        if not dados: return 0, 0, 0, 0, 0
+        if not dados: return 0, 0, 0, 0, 0, 0
         df = pd.DataFrame(dados)
         s = df["Status"].astype(str).str.strip().str.capitalize()
-        return len(df), len(s[s == "Livre"]), len(s[s == "Gerado"]), len(s[s == "Orçamento"]), len(s[s == "Reservado"])
+        return len(df), len(s[s == "Livre"]), len(s[s == "Gerado"]), len(s[s == "Orçamento"]), len(s[s == "Reservado"]), len(s[s == "Aberto"])
     except:
         return 0, 0, 0, 0, 0
 
@@ -506,24 +506,41 @@ def arquivar_tags_geradas(ids_tags, usuario_logado="Sistema"):
         st.error(f"Erro ao processar: {e}")
         return False
 
+# No arquivo services/database.py
+
 def get_resumo_global_salmao():
-    """Retorna métricas tratando Status vazio (None) como 'Livre'."""
+    """Retorna métricas somando o Histórico (Backup) + Ativos."""
     client = get_db_client()
     try:
+        # 1. Busca dados da tabela ATUAL (O que está na mesa)
         response = client.table("estoque_salmao").select("Status").execute()
         dados = response.data
-        if not dados: return 0, 0, 0, 0, 0
+        
+        # 2. Busca contagem do HISTÓRICO (O que já foi finalizado/arquivado)
+        # O parâmetro head=True conta rápido sem baixar os dados
+        resp_backup = client.table("estoque_salmao_backup").select("*", count="exact", head=True).execute()
+        qtd_historico = resp_backup.count if resp_backup.count is not None else 0
+
+        # Se não tiver dados ativos, retorna zeros, mas mantém o histórico do Gerado
+        if not dados: return 0, 0, qtd_historico, 0, 0, 0
         
         df = pd.DataFrame(dados)
-        # Substitui valores nulos por 'Livre' apenas para o cálculo das métricas
         s = df["Status"].fillna("Livre").astype(str).str.strip().str.capitalize()
         
+        # 3. Calcula os ativos atuais
+        ativos_gerado = len(s[s == "Gerado"])
+        
+        # 4. SOMA TUDO: O que está na tela + O que já foi guardado
+        total_gerado_real = ativos_gerado + qtd_historico
+
         return (
             len(df), 
             len(s[s == "Livre"]), 
-            len(s[s == "Gerado"]), 
+            total_gerado_real, # <--- Agora exibe a soma total!
             len(s[s == "Orçamento"]), 
-            len(s[s == "Reservado"])
+            len(s[s == "Reservado"]),
+            len(s[s == "Aberto"])
         )
-    except:
-        return 0, 0, 0, 0, 0
+    except Exception as e:
+        # Em caso de erro, retorna tudo zerado para não quebrar a tela
+        return 0, 0, 0, 0, 0, 0

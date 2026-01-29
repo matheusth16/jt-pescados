@@ -28,7 +28,7 @@ def aplicar_estilos(perfil="Admin"):
         .main, .stApp, [data-testid="stSidebar"] {{ 
             background-color: #0E1117 !important; 
             color: #FAFAFA !important;
-            font-size: 18px !important;
+            font-size: 22px !important;
         }}
 
         /* Títulos */
@@ -39,7 +39,7 @@ def aplicar_estilos(perfil="Admin"):
 
         /* Textos gerais e labels */
         .stMarkdown p, div[data-testid="stText"], label, .stTextInput > label, .stNumberInput > label, .stSelectbox > label {{
-            font-size: 1.1rem !important;
+            font-size: 1.3rem !important;
             color: #FAFAFA !important;
         }}
         

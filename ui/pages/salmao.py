@@ -242,13 +242,15 @@ def render_page(hash_dados, perfil, nome_user):
 
     st.subheader("🐟 Recebimento de Salmão")
     
-    qtd_total, qtd_livre, qtd_gerado, qtd_orc, qtd_reservado = db.get_resumo_global_salmao()
-    m1, m2, m3, m4, m5 = st.columns(5)
+    qtd_total, qtd_livre, qtd_gerado, qtd_orc, qtd_reservado, qtd_aberto = db.get_resumo_global_salmao()
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    
     with m1: components.render_metric_card("📦 Total", qtd_total, "#8b949e")
     with m2: components.render_metric_card("✅ Livre", qtd_livre, "#11734b")
-    with m3: components.render_metric_card("⚙️ Gerado", qtd_gerado, "#ff8500")
-    with m4: components.render_metric_card("📝 Orçamento", qtd_orc, "#e8eaed")
-    with m5: components.render_metric_card("🔵 Reservado", qtd_reservado, "#0a53a8")
+    with m3: components.render_metric_card("✂️ Aberto", qtd_aberto, "#473822") # <--- NOVO CARD AQUI
+    with m4: components.render_metric_card("⚙️ Gerado", qtd_gerado, "#ff8500")
+    with m5: components.render_metric_card("📝 Orçamento", qtd_orc, "#e8eaed")
+    with m6: components.render_metric_card("🔵 Reservado", qtd_reservado, "#0a53a8")
 
     st.markdown("---")
     msg_acao = "Ver Detalhes" if perfil == "Admin" else "Editar ou Fracionar"

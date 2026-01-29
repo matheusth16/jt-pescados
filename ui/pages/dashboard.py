@@ -66,12 +66,13 @@ def render_page(hash_dados, perfil):
                     fig_status.add_annotation(
                         text=f"<b>{total_pedidos}</b><br>PEDIDOS", 
                         showarrow=False, 
-                        font=dict(size=20, color="white")
+                        font=dict(size=26, color="white")
                     )
                     
                     fig_status.update_traces(
                         textposition='outside', 
                         textinfo='percent+label',
+                        domain={'x': [0.1, 0.9], 'y': [0.1, 0.9]},
                         hovertemplate='<b>%{label}</b><br>Qtd: %{value}<br>(%{percent})',
                         sort=True, 
                         direction='clockwise', 
@@ -79,12 +80,12 @@ def render_page(hash_dados, perfil):
                     )
                     
                     fig_status.update_layout(
-                        margin=dict(t=30, b=50, l=40, r=40), 
+                        margin=dict(t=80, b=50, l=50, r=50), 
                         showlegend=True,
                         legend=dict(orientation="h", yanchor="top", y=-0.1, xanchor="center", x=0.5),
                         paper_bgcolor='rgba(0,0,0,0)', 
                         plot_bgcolor='rgba(0,0,0,0)',
-                        font=dict(color="white")
+                        font=dict(size=16, color="white")
                     )
                     
                     st.plotly_chart(fig_status, use_container_width=True)
@@ -99,10 +100,10 @@ def render_page(hash_dados, perfil):
                     fig_pg = px.bar(contagem_pg, x="QTD", y="PAGAMENTO", orientation='h',
                                 text="QTD", color_discrete_sequence=[cor_principal])
                     fig_pg.update_layout(xaxis_title="", yaxis_title="",
-                        margin=dict(t=30, b=10, l=10, r=10),
+                        margin=dict(t=30, b=10, l=10, r=60),
                         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                        font=dict(color="white"), xaxis=dict(showgrid=False, showticklabels=False))
-                    fig_pg.update_traces(marker_line_color='rgba(0,0,0,0)', textposition='outside')
+                        font=dict(size=16,color="white"), xaxis=dict(showgrid=False, showticklabels=False))
+                    fig_pg.update_traces(marker_line_color='rgba(0,0,0,0)', textposition='outside', textfont_size=18)
                     st.plotly_chart(fig_pg, use_container_width=True)
 
         # --- SAÚDE DA OPERAÇÃO ---
@@ -161,7 +162,7 @@ def render_page(hash_dados, perfil):
                                 line_shape="spline", color_discrete_sequence=[cor_principal])
                 fig_evol.update_layout(xaxis_title="", yaxis_title="Pedidos",
                     margin=dict(t=30, b=10, l=10, r=10), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                    font=dict(color="white"), xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'))
+                    font=dict(size=16,color="white"), xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'))
                 st.plotly_chart(fig_evol, use_container_width=True)
                 
         # --- TOP CLIENTES ---
