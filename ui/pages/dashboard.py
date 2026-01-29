@@ -26,11 +26,13 @@ def render_page(hash_dados, perfil):
     df_bruto = db.buscar_pedidos_visualizacao()
     
     if not df_bruto.empty:
+        # Padroniza colunas para evitar erros de maiúsculas/minúsculas
         df_bruto.columns = [c.upper().strip() for c in df_bruto.columns]
         col_dt = next((c for c in df_bruto.columns if "ENTREGA" in c), None)
 
         df_dash = df_bruto.copy()
         if col_dt:
+            # Garante conversão de data compatível com Supabase
             df_dash[col_dt] = pd.to_datetime(df_dash[col_dt], dayfirst=True, errors='coerce')
             hoje = pd.Timestamp.now().normalize()
             
@@ -43,7 +45,7 @@ def render_page(hash_dados, perfil):
 
         total_pedidos = len(df_dash)
         
-        # GRÁFICOS
+        # --- GRÁFICOS (PIZZA E BARRA) ---
         c_pizza, c_barra = st.columns(2)
         with c_pizza:
             with st.container(border=True):
@@ -52,7 +54,6 @@ def render_page(hash_dados, perfil):
                     contagem_status = df_dash["STATUS"].value_counts().reset_index()
                     contagem_status.columns = ["STATUS", "TOTAL"]
                     
-                    # --- CRIAÇÃO DO GRÁFICO DE ROSCA OTIMIZADO ---
                     fig_status = px.pie(
                         contagem_status, 
                         values="TOTAL", 
@@ -62,28 +63,25 @@ def render_page(hash_dados, perfil):
                         color_discrete_map=PALETA_CORES["STATUS"]
                     )
                     
-                    # Anotação Central (Total)
                     fig_status.add_annotation(
                         text=f"<b>{total_pedidos}</b><br>PEDIDOS", 
                         showarrow=False, 
                         font=dict(size=20, color="white")
                     )
                     
-                    # Configurações de Visualização (Labels, Ordem e Hover)
                     fig_status.update_traces(
                         textposition='outside', 
-                        textinfo='percent+label', # Mostra Nome e % fora da fatia
-                        hovertemplate='<b>%{label}</b><br>Qtd: %{value}<br>(%{percent})', # Tooltip detalhado
+                        textinfo='percent+label',
+                        hovertemplate='<b>%{label}</b><br>Qtd: %{value}<br>(%{percent})',
                         sort=True, 
-                        direction='clockwise', # Sentido horário
-                        rotation=90 # Começa do topo (12h)
+                        direction='clockwise', 
+                        rotation=90
                     )
                     
-                    # Layout Geral e Legenda
                     fig_status.update_layout(
                         margin=dict(t=30, b=50, l=40, r=40), 
-                        showlegend=True, # Legenda interativa ativada
-                        legend=dict(orientation="h", yanchor="top", y=-0.1, xanchor="center", x=0.5), # Legenda em baixo
+                        showlegend=True,
+                        legend=dict(orientation="h", yanchor="top", y=-0.1, xanchor="center", x=0.5),
                         paper_bgcolor='rgba(0,0,0,0)', 
                         plot_bgcolor='rgba(0,0,0,0)',
                         font=dict(color="white")
@@ -107,7 +105,7 @@ def render_page(hash_dados, perfil):
                     fig_pg.update_traces(marker_line_color='rgba(0,0,0,0)', textposition='outside')
                     st.plotly_chart(fig_pg, use_container_width=True)
 
-        # SAÚDE DA OPERAÇÃO
+        # --- SAÚDE DA OPERAÇÃO ---
         st.markdown("#### Resumo da Operação")
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -116,7 +114,6 @@ def render_page(hash_dados, perfil):
             classe_cor = "saude-baixa" if pct_saude < 50 else "saude-media" if pct_saude < 80 else "saude-alta"
             components.render_status_card("🩺 Saúde da Operação", f"{pct_saude:.1f}%", css_class=classe_cor)
         
-        # 2. AGUARDANDO PROCESSO (Mantendo a lógica dos Chips/Mini-cards corrigida)
         with c2:
             if "STATUS" in df_dash.columns:
                 counts = df_dash["STATUS"].value_counts()
@@ -129,7 +126,6 @@ def render_page(hash_dados, perfil):
                 
                 total_aguardando = p_orcamento + p_reservado + p_n_gerado + p_pendente + p_gerado
                 
-                # Helper COMPACTADO (Sem espaços para não quebrar o visual)
                 def make_chip(label, val, cor):
                     return f'<div class="status-chip"><div><span class="chip-dot" style="background-color: {cor}; box-shadow: 0 0 5px {cor};"></span><span class="chip-label">{label}</span></div><span class="chip-val">{val}</span></div>'
 
@@ -154,7 +150,7 @@ def render_page(hash_dados, perfil):
         with c3:
             components.render_status_card("✅ Pedidos Entregues", entregues, inline_color="#28A745")
         
-        # EVOLUÇÃO
+        # --- EVOLUÇÃO ---
         st.markdown("#### 📈 Evolução de Pedidos por Dia")
         with st.container(border=True):
             if col_dt and not df_dash.empty:
@@ -168,12 +164,16 @@ def render_page(hash_dados, perfil):
                     font=dict(color="white"), xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'))
                 st.plotly_chart(fig_evol, use_container_width=True)
                 
-        # TOP CLIENTES
+        # --- TOP CLIENTES ---
         st.markdown("#### 🏆 Top 5 Clientes do Período")
         with st.container(border=True):
             if "NOME CLIENTE" in df_dash.columns:
                 top_clientes = df_dash["NOME CLIENTE"].value_counts().reset_index().head(5)
                 top_clientes.columns = ["CLIENTE", "QTD"]
+                
+                # CORREÇÃO DO ERRO 4.0: Força conversão para texto
+                top_clientes["CLIENTE"] = top_clientes["CLIENTE"].astype(str)
+                
                 max_pedidos = top_clientes["QTD"].max() if not top_clientes.empty else 1
                 st.data_editor(top_clientes, column_config={
                         "CLIENTE": st.column_config.TextColumn("👤 Nome do Cliente"),

@@ -34,7 +34,7 @@ def inicializar_sessao():
     if "processando_envio" not in st.session_state:
         st.session_state.processando_envio = False
     
-    # Variável de Filtro do Dashboard (Novo - Interatividade Cruzada)
+    # Variável de Filtro do Dashboard
     if "filtro_status_dash" not in st.session_state:
         st.session_state.filtro_status_dash = None
     
@@ -61,6 +61,7 @@ def tela_login():
             st.markdown("<br>", unsafe_allow_html=True)
             if st.form_submit_button("ACESSAR SISTEMA", use_container_width=True):
                 try:
+                    # Atualizado para usar a nova função do Supabase
                     dados = db.autenticar_usuario(user, pw)
                     if dados:
                         st.session_state.logado = True
@@ -80,6 +81,7 @@ if not st.session_state.logado:
 else:
     # 3.1. Dados Globais e Sidebar
     try:
+        # Mantido para compatibilidade, agora retorna time.time()
         hash_dados = db.obter_versao_planilha()
     except:
         hash_dados = time.time()
@@ -94,18 +96,13 @@ else:
         st.image("assets/imagem da empresa.jpg", use_container_width=True)
         st.markdown("<br>", unsafe_allow_html=True)
         components.render_user_card(NOME_USER, PERFIL)
-        st.caption("🔄 Sincronizado")
         st.markdown("---")
         
-        if PERFIL == "Admin":
-            st.markdown("#### 🛠️ Ferramentas")
-            # Link para planilha
-            st.link_button("📂 Planilha Master", "https://docs.google.com/spreadsheets/d/1IenRiZI1TeqCFk4oB-r2WrqGsk0muUACsQA-kkvP4tc/edit?usp=sharing", use_container_width=True)
+        # LINK DO SUPABASE REMOVIDO AQUI
         
         st.markdown("<br><br>", unsafe_allow_html=True)
         if st.button("🚪 Sair", use_container_width=True):
             st.session_state.logado = False
-            # Limpa filtros ao sair para evitar confusão no próximo login
             st.session_state.filtro_status_dash = None 
             st.rerun()
 
@@ -153,4 +150,4 @@ else:
         page_clientes.render_page(hash_dados, PERFIL)
         
     elif escolha_nav == "🐟 Recebimento de Salmão":
-        page_salmao.render_page(NOME_USER, PERFIL)
+        page_salmao.render_page(hash_dados, PERFIL, NOME_USER)

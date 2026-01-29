@@ -1,8 +1,7 @@
 import streamlit as st
-import pandas as pd  # <--- ADICIONADO AQUI
+import pandas as pd
 import time
 from datetime import datetime
-from gspread.exceptions import APIError
 import services.database as db
 import ui.components as components
 import ui.styles as styles
@@ -15,30 +14,114 @@ def render_page(hash_dados, perfil, nome_user):
 
     st.markdown("### 📝 Novo Pedido")
     
+    # --- CONTROLE DE ESTADO DO MODAL (AQUI ESTÁ A CORREÇÃO) ---
+    # Essa variável garante que o modal fique aberto até mandarmos fechar
+    if "show_modal_confirmar" not in st.session_state:
+        st.session_state.show_modal_confirmar = False
+
     # Inicializa DataFrame vazio como fallback
     df_clientes_completo = pd.DataFrame() 
     
     try:
-        # Tenta buscar os dados completos para pegar Cidade e Rota
-        conn = db.get_connection()
-        ws = conn.worksheet("BaseClientes")
-        data = ws.get_all_records()
-        df_clientes_completo = pd.DataFrame(data)
+        # Busca dados no Supabase para pegar Cidade e Rota
+        client = db.get_db_client()
+        response = client.table("clientes").select("*").execute()
         
-        if not df_clientes_completo.empty:
-            # Normaliza colunas para evitar erros de espaços
+        if response.data:
+            df_clientes_completo = pd.DataFrame(response.data)
             df_clientes_completo.columns = [str(c).strip() for c in df_clientes_completo.columns]
-    except:
-        # Se der erro (ex: offline), segue com DataFrame vazio
-        df_clientes_completo = pd.DataFrame()
+    except Exception:
+        pass
 
-    # Prepara a lista de nomes para o Selectbox
-    lista_nomes = ["Consumidor Final"]
+    lista_nomes = []
     if not df_clientes_completo.empty:
         if "Cliente" in df_clientes_completo.columns:
             nomes_validos = df_clientes_completo["Cliente"].dropna().astype(str).str.upper().unique()
             lista_nomes = sorted([n for n in nomes_validos if n.strip() != ""])
 
+    if not lista_nomes:
+        lista_nomes = ["Nenhum cliente cadastrado"]
+
+    # --- FUNÇÃO DO MODAL (CARD CENTRO DA TELA) ---
+    @st.dialog("📋 Confirmar Detalhes do Pedido")
+    def modal_confirmacao():
+        # Inicializa variáveis internas se não existirem
+        if "m_editando" not in st.session_state:
+            st.session_state.m_editando = False
+            
+        # --- MODO DE VISUALIZAÇÃO (RESUMO) ---
+        if not st.session_state.m_editando:
+            st.markdown("### Resumo")
+            st.write(f"**👤 Cliente:** {st.session_state.m_cli}")
+            st.write(f"**📅 Entrega:** {st.session_state.m_dt.strftime('%d/%m/%Y')}")
+            st.write(f"**💳 Pagamento:** {st.session_state.m_pg}")
+            st.write(f"**📊 Status:** {st.session_state.m_stt}")
+            if st.session_state.m_nr:
+                st.write(f"**🔢 NR Pedido:** {st.session_state.m_nr}")
+            
+            st.info(f"**📝 Itens:**\n\n{st.session_state.m_desc}")
+            st.divider()
+
+            c_conf, c_edit = st.columns(2)
+            
+            with c_conf:
+                if st.button("✅ Confirmar e Salvar", type="primary", use_container_width=True):
+                    with st.spinner("Gravando pedido..."):
+                        try:
+                            db.salvar_pedido(
+                                st.session_state.m_cli, 
+                                st.session_state.m_desc, 
+                                st.session_state.m_dt, 
+                                st.session_state.m_pg, 
+                                st.session_state.m_stt, 
+                                nr_pedido=st.session_state.m_nr, 
+                                usuario_logado=nome_user
+                            )
+                            st.toast(f"✅ Pedido salvo com sucesso!", icon="🎉")
+                            time.sleep(1.5)
+                            
+                            # Limpa variáveis e fecha o modal
+                            for key in ["m_cli", "m_dt", "m_pg", "m_stt", "m_nr", "m_desc", "m_editando", "show_modal_confirmar"]:
+                                if key in st.session_state: del st.session_state[key]
+                            
+                            st.session_state.form_id += 1
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao salvar: {e}")
+
+            with c_edit:
+                if st.button("✏️ Editar", use_container_width=True):
+                    st.session_state.m_editando = True
+                    st.rerun()
+        
+        # --- MODO DE EDIÇÃO (ALTERAR DADOS DENTRO DO CARD) ---
+        else:
+            st.markdown("### ✏️ Editar Informações")
+            
+            # Recria os campos para edição
+            # Garante que o índice existe na lista, senão usa 0
+            idx_cli = lista_nomes.index(st.session_state.m_cli) if st.session_state.m_cli in lista_nomes else 0
+            st.session_state.m_cli = st.selectbox("Cliente", lista_nomes, index=idx_cli, key="ed_cli")
+            
+            st.session_state.m_dt = st.date_input("Data Entrega", value=st.session_state.m_dt, min_value=datetime.today().date(), key="ed_dt")
+            
+            idx_pg = LISTA_PAGAMENTO.index(st.session_state.m_pg) if st.session_state.m_pg in LISTA_PAGAMENTO else 0
+            st.session_state.m_pg = st.selectbox("Pagamento", LISTA_PAGAMENTO, index=idx_pg, key="ed_pg")
+            
+            idx_stt = LISTA_STATUS.index(st.session_state.m_stt) if st.session_state.m_stt in LISTA_STATUS else 2
+            st.session_state.m_stt = st.selectbox("Status", LISTA_STATUS, index=idx_stt, key="ed_stt")
+            
+            st.session_state.m_nr = st.text_input("NR Pedido", value=st.session_state.m_nr, key="ed_nr")
+            st.session_state.m_desc = st.text_area("Descrição", value=st.session_state.m_desc, height=150, key="ed_desc")
+
+            if st.button("💾 Salvar Alterações", type="primary", use_container_width=True):
+                if not st.session_state.m_desc.strip():
+                    st.error("A descrição não pode ficar vazia.")
+                else:
+                    st.session_state.m_editando = False
+                    st.rerun()
+
+    # --- INTERFACE PRINCIPAL ---
     with st.container(border=True):
         st.markdown("#### 1️⃣ Identificação e Entrega")
         c1, c2 = st.columns([2, 1])
@@ -53,7 +136,6 @@ def render_page(hash_dados, perfil, nome_user):
             cidade_cli = "Não informado"
             rota_cli = "-"
             
-            # Busca Cidade e Rota automaticamente se o DF foi carregado
             if not df_clientes_completo.empty and "Cliente" in df_clientes_completo.columns:
                 try:
                     row_cli = df_clientes_completo[df_clientes_completo["Cliente"].astype(str).str.upper() == str(cli).upper()]
@@ -77,10 +159,9 @@ def render_page(hash_dados, perfil, nome_user):
                 st.caption("Visualizando histórico de pedidos.")
                 st.markdown("---")
                 
-                # --- LÓGICA DE PAGINAÇÃO DO MODAL ---
                 key_limit = f"hist_limit_{cliente_nome}"
                 if key_limit not in st.session_state:
-                    st.session_state[key_limit] = 5  # Começa mostrando 5 itens
+                    st.session_state[key_limit] = 5 
                 
                 try:
                     df_hist_bruto = db.buscar_pedidos_visualizacao()
@@ -90,7 +171,6 @@ def render_page(hash_dados, perfil, nome_user):
                     limite_atual = st.session_state[key_limit]
 
                     if itens_historico:
-                        # Exibe apenas até o limite atual
                         for item in itens_historico[:limite_atual]:
                             components.render_history_item(
                                 id_ped=item['id'],
@@ -100,7 +180,6 @@ def render_page(hash_dados, perfil, nome_user):
                                 pagamento=item['pagamento']
                             )
                         
-                        # Botão para carregar mais
                         restante = total_itens - limite_atual
                         if restante > 0:
                             st.info(f"Ainda existem {restante} pedidos mais antigos.")
@@ -116,16 +195,20 @@ def render_page(hash_dados, perfil, nome_user):
                 modal_historico(cli)
                 
         with c2: 
-            dt = st.date_input("Data de Entrega:", datetime.today(), format="DD/MM/YYYY", key=f"d_{st.session_state.form_id}")
-            if dt < datetime.today().date():
-                st.warning("⚠️ Atenção: Data retroativa!")
+            dt = st.date_input(
+                "Data de Entrega:", 
+                value=datetime.today(), 
+                min_value=datetime.today().date(), 
+                format="DD/MM/YYYY", 
+                key=f"d_{st.session_state.form_id}"
+            )
+            
             st.write("")
             st.write("")
             try:
                 df_vol = db.buscar_pedidos_visualizacao()
                 if not df_vol.empty:
                     data_sel = dt.strftime("%d/%m/%Y")
-                    # Corrige nome da coluna para garantir compatibilidade
                     col_entrega = next((c for c in df_vol.columns if "ENTREGA" in c.upper()), None)
                     if col_entrega:
                         pedidos_no_dia = len(df_vol[df_vol[col_entrega] == data_sel])
@@ -139,7 +222,8 @@ def render_page(hash_dados, perfil, nome_user):
         with c3: pg = st.selectbox("Forma de Pagamento:", LISTA_PAGAMENTO, key=f"p_{st.session_state.form_id}")
         with c4: stt = st.selectbox("Status Inicial:", LISTA_STATUS, index=2, key=f"s_{st.session_state.form_id}")
         
-        usar_nr = st.checkbox("Informar NR do Pedido externo?", key=f"chk_{st.session_state.form_id}")
+        usar_nr = st.checkbox("Informar NR do Pedido?", key=f"chk_{st.session_state.form_id}")
+        
         nr_ped = ""
         if usar_nr:
             nr_ped = st.text_input("Digite o NR do Pedido:", placeholder="Ex: 12345", key=f"nr_{st.session_state.form_id}")
@@ -147,51 +231,37 @@ def render_page(hash_dados, perfil, nome_user):
         st.divider()
         st.markdown("#### 3️⃣ Itens do Pedido")
         desc = st.text_area("Descrição (Quantidade e Produtos):", height=150, placeholder="Ex: 10kg de Tilápia...", key=f"de_{st.session_state.form_id}")
-        form_invalido = len(desc.strip()) == 0
-
+        
         if desc:
             st.markdown("---")
             components.render_preview_card(cli, dt, rota_cli, pg, stt, cor_principal)
             st.markdown("<br>", unsafe_allow_html=True)
         else:
             st.caption("📝 *Preencha a descrição dos itens para liberar o botão de cadastro.*")
-
-        # --- 4. PREVENÇÃO DE DUPLO CLIQUE ---
+        
         c_btn1, c_btn2 = st.columns([3, 1])
         
         with c_btn1:
-            if st.session_state.processando_envio:
-                components.render_loader_action("🚀 Enviando pedido para o Google Sheets...")
-                try:
-                    db.salvar_pedido(cli, desc, dt, pg, stt, nr_pedido=nr_ped, usuario_logado=nome_user)
-                    st.toast(f"✅ Pedido para **{cli}** salvo com sucesso!", icon="🎉")
-                    time.sleep(1.5)
-                    st.session_state.processando_envio = False
-                    st.session_state.form_id += 1
+            # BOTÃO GATILHO: SÓ DEFINE QUE O MODAL DEVE ABRIR
+            if st.button("🚀 CADASTRAR PEDIDO", type="primary", use_container_width=True):
+                if not desc.strip():
+                    st.error("⚠️ Digite os itens do pedido antes de cadastrar!")
+                else:
+                    # Salva os dados no estado e ativa a flag do modal
+                    st.session_state.m_cli = cli
+                    st.session_state.m_dt = dt
+                    st.session_state.m_pg = pg
+                    st.session_state.m_stt = stt
+                    st.session_state.m_nr = nr_ped
+                    st.session_state.m_desc = desc
+                    st.session_state.show_modal_confirmar = True
                     st.rerun()
-                except APIError as e:
-                    components.render_error_details("Limite do Google (429). Aguarde e tente de novo.", e)
-                    st.session_state.processando_envio = False 
-                except ConnectionError as e:
-                    components.render_error_details("Sem conexão com a internet.", e)
-                    st.session_state.processando_envio = False
-                except Exception as e:
-                    components.render_error_details("Erro inesperado ao gravar.", e)
-                    st.session_state.processando_envio = False
-
-            else:
-                def iniciar_envio():
-                    st.session_state.processando_envio = True
-
-                st.button("🚀 CADASTRAR PEDIDO", 
-                          type="primary", 
-                          use_container_width=True, 
-                          disabled=form_invalido, 
-                          on_click=iniciar_envio)
         
         with c_btn2:
-            if st.button("🗑️ Limpar", 
-                         use_container_width=True, 
-                         disabled=st.session_state.processando_envio):
+            if st.button("🗑️ Limpar", use_container_width=True):
                 st.session_state.form_id += 1
                 st.rerun()
+
+    # --- VERIFICAÇÃO FINAL: SE A VARIÁVEL ESTIVER TRUE, ABRE O MODAL ---
+    if st.session_state.show_modal_confirmar:
+        modal_confirmacao()

@@ -1,7 +1,10 @@
 import pytz
 
 # --- CONSTANTES GERAIS ---
-SHEET_ID = "1IenRiZI1TeqCFk4oB-r2WrqGsk0muUACsQA-kkvP4tc"
+# Substitua abaixo pelas suas credenciais do painel do Supabase (Project Settings > API)
+SUPABASE_URL = "https://dnwnlyworysxbkyarwkd.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRud25seXdvcnlzeGJreWFyd2tkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2OTU1ODY5NywiZXhwIjoyMDg1MTM0Njk3fQ.xHaTfQ8sSp7EZOTmwyDDzZyuOo0j7q-LaX92TQ6UPj4"
+
 FUSO_BR = pytz.timezone('America/Sao_Paulo')
 
 # --- REGRAS DE NEGÓCIO (VALIDADE) ---
@@ -37,7 +40,6 @@ PALETA_CORES = {
         "OK": ""              # Sem cor de fundo
     },
     # Cores usadas no tema da interface (CSS)
-    # CORREÇÃO: Agora são dicionários completos, não apenas strings
     "TEMA": {
         "Admin": {
             "principal": "#b10202",             # Vermelho JT

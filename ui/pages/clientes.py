@@ -41,7 +41,7 @@ def render_page(hash_dados, perfil):
         
     TAMANHO_PAGINA = 20
     
-    # Busca apenas os 20 clientes da página atual
+    # Busca apenas os 20 clientes da página atual e o total
     df_clientes_view, total_registros = db.buscar_clientes_paginado(st.session_state["pag_atual_clientes"], TAMANHO_PAGINA)
     
     # Calcula total de páginas
@@ -56,7 +56,8 @@ def render_page(hash_dados, perfil):
                 "Cliente": st.column_config.TextColumn("👤 Cliente", width="medium"),
                 "Nome Cidade": st.column_config.TextColumn("📍 Cidade"),
                 "CPF/CNPJ": st.column_config.TextColumn("🆔 Documento"),
-                "ROTA": st.column_config.TextColumn("🚚 Rota")
+                "ROTA": st.column_config.TextColumn("🚚 Rota"),
+                "created_at": None # <--- OCULTA A COLUNA DE DATA DE CRIAÇÃO
         })
         
         # --- CONTROLES DE PAGINAÇÃO ---

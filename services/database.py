@@ -1,109 +1,81 @@
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-from gspread.exceptions import APIError, WorksheetNotFound, GSpreadException
 import pandas as pd
 import streamlit as st
-import os
 import time
 from datetime import datetime
+from supabase import create_client, Client
 
-# --- NOVOS IMPORTS DA ARQUITETURA ---
-from core.config import SHEET_ID, FUSO_BR
+# --- IMPORTS DA CONFIGURAÇÃO ---
+from core.config import SUPABASE_URL, SUPABASE_KEY, FUSO_BR
 from services.utils import limpar_texto
 
-# --- CONEXÃO COM GOOGLE SHEETS ---
+# --- CONEXÃO COM SUPABASE ---
 @st.cache_resource
-def get_connection():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    
-    last_error = None
-    for tentativa in range(3):
-        try:
-            if "gcp_service_account" in st.secrets:
-                creds_dict = st.secrets["gcp_service_account"]
-                creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-            elif os.path.exists("credentials.json"):
-                creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
-            else:
-                raise FileNotFoundError("Credenciais não encontradas (secrets ou json).")
-            
-            gc = gspread.authorize(creds)
-            return gc.open_by_key(SHEET_ID)
-        except Exception as e:
-            last_error = e
-            if "429" in str(e): 
-                time.sleep(2)
-                continue
-            else:
-                break
-    
-    raise ConnectionError(f"Falha na conexão com Google Sheets: {last_error}")
+def get_db_client() -> Client:
+    """Retorna o cliente do Supabase (Singleton)."""
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # --- FUNÇÕES AUXILIARES LOCAIS ---
-def get_col_indices(ws):
-    """Mapeia nomes das colunas para índices."""
-    cabecalhos = [c.upper().strip() for c in ws.row_values(1)]
-    mapa = {}
-    for idx, nome in enumerate(cabecalhos):
-        mapa[nome] = idx + 1
-    return mapa
+def get_max_id(table_name, id_column):
+    """Busca o maior ID numérico de uma tabela para simular auto-incremento manual."""
+    try:
+        client = get_db_client()
+        response = client.table(table_name)\
+            .select(id_column)\
+            .order(id_column, desc=True)\
+            .limit(1)\
+            .execute()
+        if response.data:
+            return int(response.data[0][id_column])
+        return 0
+    except Exception:
+        return 0
 
 # --- CONTROLE DE CACHE INTELIGENTE ---
 def obter_versao_planilha():
-    try:
-        sh = get_connection()
-        return sh.lastUpdateTime
-    except Exception:
-        return time.time()
+    return time.time()
 
 # --- AUTENTICAÇÃO ---
 def autenticar_usuario(login_digitado, senha_digitada):
-    sh = get_connection()
+    client = get_db_client()
     try:
-        ws = sh.worksheet("Usuarios")
-    except WorksheetNotFound:
-        raise Exception("Aba 'Usuarios' não encontrada na planilha.")
+        # Busca usuário exato
+        response = client.table("usuarios")\
+            .select("*")\
+            .eq("LOGIN", str(login_digitado).strip())\
+            .eq("SENHA", str(senha_digitada).strip())\
+            .execute()
         
-    usuarios = ws.get_all_records()
-    for u in usuarios:
-        if str(u.get('LOGIN', '')).strip().lower() == str(login_digitado).strip().lower() and \
-           str(u.get('SENHA', '')).strip() == str(senha_digitada).strip():
-            return {"nome": u.get('NOME', 'Usuário'), "perfil": u.get('PERFIL', 'Operador')}
+        if response.data:
+            user = response.data[0]
+            return {"nome": user.get('NOME', 'Usuário'), "perfil": user.get('PERFIL', 'Operador')}
+    except Exception as e:
+        st.error(f"Erro ao autenticar: {e}")
     return None
 
-# --- LEITURAS COM CACHE INTELIGENTE ---
-@st.cache_data
+# --- LEITURAS ---
+@st.cache_data(ttl=60)
 def listar_clientes(_hash_versao=None):
-    sh = get_connection()
-    ws = sh.worksheet("BaseClientes")
-    col_valores = ws.col_values(2)
-    if len(col_valores) > 1:
-        return sorted(list(set([limpar_texto(n) for n in col_valores[1:] if n])))
+    client = get_db_client()
+    try:
+        response = client.table("clientes").select("Cliente").order("Cliente").execute()
+        if response.data:
+            lista = [c["Cliente"] for c in response.data if c["Cliente"]]
+            return sorted(list(set(lista)))
+    except Exception:
+        pass
     return []
 
 def buscar_pedidos_visualizacao():
-    sh = get_connection()
-    ws = sh.worksheet("Pedidos")
-    dados = ws.get_all_values()
-    if len(dados) > 1:
-        try:
-            corrigiu = corrigir_ids_faltantes(ws, dados)
-            if corrigiu: dados = ws.get_all_values()
-        except: pass
-        return pd.DataFrame(dados[1:], columns=dados[0])
+    """Busca todos os pedidos para visualização (sem paginação)."""
+    client = get_db_client()
+    try:
+        response = client.table("pedidos").select("*").order("ID_PEDIDO", desc=True).execute()
+        if response.data:
+            df = pd.DataFrame(response.data)
+            return df
+    except Exception:
+        pass
     return pd.DataFrame()
-
-def corrigir_ids_faltantes(ws, dados):
-    cabecalhos = [str(c).upper().strip() for c in dados[0]]
-    if "ID_PEDIDO" not in cabecalhos: return False
-    idx_id = cabecalhos.index("ID_PEDIDO")
-    coluna_ids = [linha[idx_id] for linha in dados[1:]]
-    
-    if any(not val or val == "" for val in coluna_ids):
-        ids_corretos = [[str(i + 1)] for i in range(len(coluna_ids))]
-        ws.update(f"A2:A{len(coluna_ids) + 1}", ids_corretos)
-        return True
-    return False
 
 # --- HISTÓRICO ---
 def obter_resumo_historico(df_bruto, nome_cliente):
@@ -111,36 +83,40 @@ def obter_resumo_historico(df_bruto, nome_cliente):
         return []
     
     df = df_bruto.copy()
-    df.columns = [str(c).strip().upper() for c in df.columns]
+    col_nome = "NOME CLIENTE"
+    col_status = "STATUS"
+    col_id = "ID_PEDIDO"
     
-    cols_necessarias = ["NOME CLIENTE", "STATUS", "ID_PEDIDO"]
-    if not all(c in df.columns for c in cols_necessarias):
+    if col_nome not in df.columns:
         return []
 
     nome_alvo = limpar_texto(nome_cliente)
-    df["_NOME_TEMP"] = df["NOME CLIENTE"].apply(limpar_texto)
+    df["_NOME_TEMP"] = df[col_nome].apply(limpar_texto)
     df_cli = df[df["_NOME_TEMP"] == nome_alvo]
     
     if df_cli.empty:
         return []
 
-    col_data = next((c for c in df_cli.columns if "ENTREGA" in c), None)
-    if col_data:
+    col_data = "DIA DA ENTREGA"
+    if col_data in df_cli.columns:
         df_cli[col_data] = pd.to_datetime(df_cli[col_data], dayfirst=True, errors='coerce')
         df_cli = df_cli.sort_values(col_data, ascending=False)
 
     historico = []
     for _, row in df_cli.iterrows():
         data_str = "-"
-        if col_data and pd.notnull(row[col_data]):
-            data_str = row[col_data].strftime("%d/%m/%Y")
+        if col_data in row and pd.notnull(row[col_data]):
+            try:
+                data_str = row[col_data].strftime("%d/%m/%Y")
+            except:
+                data_str = str(row[col_data])
         
-        desc = row.get("PEDIDO") or row.get("DESCRIÇÃO") or row.get("OBSERVAÇÃO") or "Sem descrição"
+        desc = row.get("PEDIDO") or row.get("OBSERVAÇÃO") or "Sem descrição"
         
         item = {
-            "id": row.get("ID_PEDIDO", "?"),
+            "id": row.get(col_id, "?"),
             "data": data_str,
-            "status": row.get("STATUS", "Desconhecido"),
+            "status": row.get(col_status, "Desconhecido"),
             "descricao": str(desc),
             "pagamento": row.get("PAGAMENTO", "-")
         }
@@ -150,384 +126,404 @@ def obter_resumo_historico(df_bruto, nome_cliente):
 
 # --- GRAVAÇÃO ---
 def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_escolhido, observacao="", nr_pedido="", usuario_logado="Sistema"):
-    sh = get_connection()
+    client = get_db_client()
     get_metricas.clear()
     listar_clientes.clear()
     
-    try:
-        ws_respostas = sh.worksheet("Respostas ao formulário 1")
-        ws_pedidos = sh.worksheet("Pedidos")
-        ws_logs = sh.worksheet("Historico_Logs")
-    except WorksheetNotFound as e:
-        raise Exception(f"Aba obrigatória não encontrada: {e}")
-
     nome_final = limpar_texto(nome)
     obs_final = limpar_texto(observacao)
     nr_final = limpar_texto(nr_pedido)
     desc_final = descricao.strip() 
-
-    # 1. Respostas
+    data_entrega_str = data_entrega.strftime("%d/%m/%Y")
     data_log = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
-    coluna_datas = ws_respostas.col_values(1)
-    proxima_linha = len(coluna_datas) + 1 if len(coluna_datas) > 0 else 2
-    ws_respostas.update(f"A{proxima_linha}:D{proxima_linha}", [[
-        data_log, nome_final, desc_final, data_entrega.strftime("%d/%m/%Y")
-    ]])
-    time.sleep(1) 
     
-    # 2. Pedidos
-    mapa = get_col_indices(ws_pedidos)
-    novo_id = proxima_linha - 1
-    cells = []
-    if "ID_PEDIDO" in mapa: cells.append(gspread.Cell(proxima_linha, mapa["ID_PEDIDO"], str(novo_id)))
-    if "PAGAMENTO" in mapa: cells.append(gspread.Cell(proxima_linha, mapa["PAGAMENTO"], pagamento_escolhido))
-    if "STATUS" in mapa: cells.append(gspread.Cell(proxima_linha, mapa["STATUS"], status_escolhido))
-    if nr_final and "NR PEDIDO" in mapa: cells.append(gspread.Cell(proxima_linha, mapa["NR PEDIDO"], nr_final))
+    # 1. Gerar ID do Pedido
+    novo_id = get_max_id("pedidos", "ID_PEDIDO") + 1
+
+    # 2. Buscar Dados do Cliente (Código, Cidade, Rota) - CORRIGIDO
+    cod_cliente = None
+    cidade_dest = "NÃO DEFINIDO"
+    rota_dest = "RETIRADA CD"
     
-    col_obs = next((c for c in ["OBSERVAÇÃO", "DESCRIÇÃO"] if c in mapa), None)
-    if col_obs and obs_final: cells.append(gspread.Cell(proxima_linha, mapa[col_obs], obs_final))
-
-    if cells: ws_pedidos.update_cells(cells)
-
-    # 3. Log
     try:
-        ws_logs.append_row([
-            data_log, str(novo_id), str(usuario_logado),
-            "CRIAÇÃO", "-", f"Status: {status_escolhido}"
-        ])
-    except: pass
+        # Busca na tabela clientes pelo nome exato
+        resp_cli = client.table("clientes").select("*").eq("Cliente", nome).execute()
+        if resp_cli.data:
+            d = resp_cli.data[0]
+            cod_cliente = d.get("Código")
+            # Pega cidade e rota do cadastro, ou usa padrão se estiver vazio
+            cidade_dest = d.get("Nome Cidade") or "NÃO DEFINIDO"
+            rota_dest = d.get("ROTA") or "RETIRADA CD"
+    except:
+        pass
+
+    # 3. Inserir no Banco
+    dados_pedido = {
+        "ID_PEDIDO": novo_id,
+        "CARIMBO DE DATA/HORA": data_log,
+        "COD CLIENTE": cod_cliente,
+        "NOME CLIENTE": nome_final,
+        "PEDIDO": desc_final,
+        "DIA DA ENTREGA": data_entrega_str,
+        "PAGAMENTO": pagamento_escolhido,
+        "STATUS": status_escolhido,
+        "NR PEDIDO": nr_final,
+        "OBSERVAÇÃO": obs_final,
+        "CIDADE": cidade_dest,  
+        "ROTA": rota_dest       
+    }
+
+    try:
+        client.table("pedidos").insert(dados_pedido).execute()
+        
+        # Log
+        log_entry = {
+            "DATA_HORA": data_log,
+            "ID_PEDIDO": novo_id,
+            "USUARIO": str(usuario_logado),
+            "CAMPO": "CRIAÇÃO",
+            "VALOR_ANTIGO": "-",
+            "VALOR_NOVO": f"Status: {status_escolhido}"
+        }
+        client.table("logs").insert(log_entry).execute()
+        
+    except Exception as e:
+        raise Exception(f"Erro ao salvar no Supabase: {e}")
 
 # --- ATUALIZAÇÃO ---
 def atualizar_pedidos_editaveis(df_editado, usuario_logado="Sistema"):
-    sh = get_connection()
-    ws_pedidos = sh.worksheet("Pedidos")
-    ws_logs = sh.worksheet("Historico_Logs")
-    
-    dados_atuais = ws_pedidos.get_all_values()
-    if len(dados_atuais) < 2: return
-    
-    cabecalhos = [c.upper().strip() for c in dados_atuais[0]]
-    mapa = {nome: idx + 1 for idx, nome in enumerate(cabecalhos)}
-    
-    idx_id = mapa.get("ID_PEDIDO")
-    if not idx_id: raise Exception("ID_PEDIDO ausente.")
-    
-    snapshot = {}
-    for i, row in enumerate(dados_atuais[1:]):
-        pid = str(row[idx_id-1])
-        if pid: snapshot[pid] = {"row": i+2, "data": row}
+    client = get_db_client()
+    if df_editado.empty: return
 
-    cells = []
-    logs = []
-    timestamp = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
+    colunas_check = ["STATUS", "PAGAMENTO", "NR PEDIDO", "OBSERVAÇÃO"]
     
-    cols_check = {"STATUS": "STATUS", "PAGAMENTO": "PAGAMENTO", "NR PEDIDO": "NR PEDIDO", "OBSERVAÇÃO": "OBSERVAÇÃO"}
+    if "ID_PEDIDO" not in df_editado.columns:
+        st.error("ID_PEDIDO não encontrado na edição.")
+        return
+
+    timestamp = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
 
     for _, row in df_editado.iterrows():
-        pid = str(row.get("ID_PEDIDO", ""))
-        antigo = snapshot.get(pid)
-        if antigo:
-            for col_df, col_sheet in cols_check.items():
-                if col_df in df_editado.columns and col_sheet in mapa:
-                    val_novo = limpar_texto(row[col_df]) if col_df not in ["STATUS", "PAGAMENTO"] else str(row[col_df]).strip().upper()
+        pid = row["ID_PEDIDO"]
+        try:
+            resp = client.table("pedidos").select("*").eq("ID_PEDIDO", pid).execute()
+            if not resp.data: continue
+            
+            atual_db = resp.data[0]
+            updates = {}
+            logs_batch = []
+            
+            for col in colunas_check:
+                if col in row:
+                    val_novo = str(row[col]) if row[col] is not None else ""
+                    val_novo = val_novo.strip()
+                    if col in ["STATUS", "PAGAMENTO"]:
+                        val_novo = val_novo.upper()
                     
-                    idx_col_antiga = mapa[col_sheet] - 1
-                    val_antigo = ""
-                    if idx_col_antiga < len(antigo["data"]):
-                        val_antigo = limpar_texto(antigo["data"][idx_col_antiga])
-
+                    val_antigo = str(atual_db.get(col, ""))
+                    
                     if val_novo != val_antigo:
-                        cells.append(gspread.Cell(antigo["row"], mapa[col_sheet], val_novo))
-                        logs.append([timestamp, pid, usuario_logado, col_sheet, val_antigo, val_novo])
-    
-    if logs: ws_logs.append_rows(logs)
-    if cells: ws_pedidos.update_cells(cells)
+                        updates[col] = val_novo
+                        logs_batch.append({
+                            "DATA_HORA": timestamp,
+                            "ID_PEDIDO": pid,
+                            "USUARIO": usuario_logado,
+                            "CAMPO": col,
+                            "VALOR_ANTIGO": val_antigo,
+                            "VALOR_NOVO": val_novo
+                        })
+            
+            if updates:
+                client.table("pedidos").update(updates).eq("ID_PEDIDO", pid).execute()
+                if logs_batch:
+                    client.table("logs").insert(logs_batch).execute()
+                    
+        except Exception as e:
+            print(f"Erro ao atualizar pedido {pid}: {e}")
 
 # --- CLIENTES ---
 def criar_novo_cliente(nome, cidade, documento=""):
-    sh = get_connection()
+    client = get_db_client()
     listar_clientes.clear()
     get_metricas.clear()
     
-    ws = sh.worksheet("BaseClientes")
     nome_final = limpar_texto(nome)
     cidade_final = limpar_texto(cidade)
     doc_final = limpar_texto(documento)
     
-    coluna_ids = ws.col_values(1)[1:] 
-    ids_nums = [int(x) for x in coluna_ids if str(x).strip().isdigit()]
-    novo_id = max(ids_nums) + 1 if ids_nums else 1
+    novo_id = get_max_id("clientes", "Código") + 1
     
-    ws.append_row([novo_id, nome_final, cidade_final, doc_final])
+    dados = {
+        "Código": novo_id,
+        "Cliente": nome_final,
+        "Nome Cidade": cidade_final,
+        "CPF/CNPJ": doc_final,
+        "ROTA": "NÃO DEFINIDO", 
+        "PRAZO": "A VISTA"
+    }
+    
+    try:
+        client.table("clientes").insert(dados).execute()
+    except Exception as e:
+        st.error(f"Erro ao criar cliente: {e}")
 
 @st.cache_data
 def get_metricas(_hash_versao=None):
-    sh = get_connection()
-    ws_cli = sh.worksheet("BaseClientes")
-    ws_ped = sh.worksheet("Pedidos")
-    return len(ws_cli.col_values(1))-1, len(ws_ped.col_values(1))-1
+    client = get_db_client()
+    try:
+        count_cli = client.table("clientes").select("Código", count="exact", head=True).execute().count
+        count_ped = client.table("pedidos").select("ID_PEDIDO", count="exact", head=True).execute().count
+        return count_cli, count_ped
+    except:
+        return 0, 0
 
-# ==============================================================================
-# --- MÓDULO RECEBIMENTO SALMÃO ---
-# ==============================================================================
-
+# --- ESTOQUE (SALMÃO) ---
 @st.cache_data(ttl=30, show_spinner=False)
 def get_estoque_filtrado(tag_inicio, tag_fim):
-    sh = get_connection()
+    client = get_db_client()
     try:
-        ws = sh.worksheet("Recebimento_Salmão")
-        dados = ws.get_all_records()
-        df = pd.DataFrame(dados)
-        
-        if not df.empty and "Tag" in df.columns:
+        response = client.table("estoque_salmao")\
+            .select("*")\
+            .gte("Tag", tag_inicio)\
+            .lte("Tag", tag_fim)\
+            .order("Tag")\
+            .execute()
+            
+        if response.data:
+            df = pd.DataFrame(response.data)
             df["Tag"] = pd.to_numeric(df["Tag"], errors='coerce').fillna(0).astype(int)
-            
-            if "Peso" in df.columns:
-                df["Peso"] = df["Peso"].astype(str).str.replace(",", ".")
-                df["Peso"] = pd.to_numeric(df["Peso"], errors='coerce').fillna(0.0)
-            
-            df_filtrado = df[(df["Tag"] >= tag_inicio) & (df["Tag"] <= tag_fim)]
-            return df_filtrado.sort_values("Tag")
+            df["Peso"] = pd.to_numeric(df["Peso"], errors='coerce').fillna(0.0)
+            return df
             
         return pd.DataFrame()
-    except WorksheetNotFound:
+    except Exception:
         return pd.DataFrame()
 
 def salvar_alteracoes_estoque(df_novo, usuario_logado):
-    sh = get_connection()
+    client = get_db_client()
     get_estoque_filtrado.clear()
     
-    ws = sh.worksheet("Recebimento_Salmão")
-    ws_logs = sh.worksheet("Historico_Logs")
-    
-    mapa_colunas = get_col_indices(ws)
-    colunas_editaveis = ["Calibre", "Peso", "Cliente", "Fornecedor", "Validade", "Status"]
-    
-    updates = []
-    logs = []
     timestamp = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
+    count_updates = 0
+    registros_para_atualizar = []
     
-    for idx, row_nova in df_novo.iterrows():
-        tag_id = int(row_nova["Tag"])
-        excel_row = tag_id + 1 
+    for _, row in df_novo.iterrows():
+        dados = {"Tag": int(row["Tag"])}
+        changed = False
         
+        colunas_editaveis = ["Calibre", "Peso", "Cliente", "Fornecedor", "Validade", "Status"]
         for col in colunas_editaveis:
-            val_novo = str(row_nova[col]).strip()
-            if col == "Status": val_novo = val_novo.capitalize()
-            
-            col_idx = mapa_colunas.get(col.upper())
-            if col_idx:
-                updates.append(gspread.Cell(excel_row, col_idx, val_novo))
+            if col in row:
+                val = row[col]
+                if col == "Status" and isinstance(val, str):
+                    val = val.capitalize()
+                dados[col] = val
+                changed = True
+        
+        if changed:
+            registros_para_atualizar.append(dados)
 
-    if updates:
-        ws.update_cells(updates)
-        ws_logs.append_row([timestamp, "LOTE", usuario_logado, "EDICAO_ESTOQUE", "-", f"Atualizou {len(updates)} células"])
-        return len(updates)
-    return 0
+    if registros_para_atualizar:
+        try:
+            client.table("estoque_salmao").upsert(registros_para_atualizar).execute()
+            count_updates = len(registros_para_atualizar)
+            
+            client.table("logs").insert({
+                "DATA_HORA": timestamp,
+                "ID_PEDIDO": None,
+                "USUARIO": usuario_logado,
+                "CAMPO": "EDICAO_ESTOQUE",
+                "VALOR_ANTIGO": "-",
+                "VALOR_NOVO": f"Atualizou {count_updates} itens"
+            }).execute()
+            
+        except Exception as e:
+            st.error(f"Erro ao salvar estoque: {e}")
+
+    return count_updates
 
 def registrar_subtag(id_pai, letra, cliente, peso, status, usuario_logado):
-    sh = get_connection()
+    client = get_db_client()
+    dados = {
+        "ID_Pai": int(id_pai),
+        "Letra": limpar_texto(letra),
+        "Cliente": limpar_texto(cliente),
+        "Peso": float(peso),
+        "Status": status.capitalize(),
+        "Calibre_Aux": ""
+    }
     
-    ws = sh.worksheet("Recebimento_SubTags")
-    ws_logs = sh.worksheet("Historico_Logs")
-    
-    nova_linha = [int(id_pai), limpar_texto(letra), limpar_texto(cliente), float(peso), status.capitalize()]
-    ws.append_row(nova_linha)
-    
-    timestamp = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
-    ws_logs.append_row([timestamp, f"TAG-{id_pai}", usuario_logado, "DESMEMBRAMENTO", "-", f"Letra {letra}: {peso}kg"])
-    return True
+    try:
+        client.table("estoque_subtags").insert(dados).execute()
+        timestamp = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
+        client.table("logs").insert({
+            "DATA_HORA": timestamp,
+            "USUARIO": usuario_logado,
+            "CAMPO": "DESMEMBRAMENTO",
+            "VALOR_ANTIGO": f"TAG-{id_pai}",
+            "VALOR_NOVO": f"Letra {letra}: {peso}kg"
+        }).execute()
+        return True
+    except Exception as e:
+        st.error(f"Erro subtag: {e}")
+        return False
 
-# --- ADICIONE ISTO AO FINAL DO ARQUIVO services/database.py ---
+# --- FUNÇÃO NOVA: BUSCAR DETALHES DAS SUBTAGS ---
+def buscar_subtags_por_tag(tag_pai_id):
+    client = get_db_client()
+    try:
+        response = client.table("estoque_subtags")\
+            .select("*")\
+            .eq("ID_Pai", int(tag_pai_id))\
+            .order("Letra")\
+            .execute()
+        if response.data:
+            return pd.DataFrame(response.data)
+    except Exception:
+        pass
+    return pd.DataFrame()
 
 def get_consumo_tag(tag_pai_id):
-    """
-    Retorna o peso total já consumido e a lista de letras usadas para uma Tag Pai.
-    """
-    sh = get_connection()
+    client = get_db_client()
     try:
-        ws = sh.worksheet("Recebimento_SubTags")
-        dados = ws.get_all_records()
-        df = pd.DataFrame(dados)
-        
-        if df.empty:
-            return [], 0.0
-            
-        # Padroniza colunas para evitar erro de caixa alta/baixa
-        df.columns = [str(c).strip().upper() for c in df.columns]
-        
-        # Verifica se as colunas essenciais existem (Baseado no registrar_subtag)
-        # ID_PAI, LETRA, PESO
-        if "ID_PAI" in df.columns:
-            # Filtra apenas as linhas dessa Tag
-            df["ID_PAI"] = pd.to_numeric(df["ID_PAI"], errors='coerce').fillna(0).astype(int)
-            df_tag = df[df["ID_PAI"] == int(tag_pai_id)]
-            
-            if df_tag.empty:
-                return [], 0.0
-
-            # Pega lista de letras já usadas
-            letras_usadas = []
-            if "LETRA" in df_tag.columns:
-                letras_usadas = df_tag["LETRA"].astype(str).str.strip().str.upper().tolist()
-            
-            # Soma o peso já desmembrado
-            peso_usado = 0.0
-            if "PESO" in df_tag.columns:
-                 # Garante que seja número
-                 s = df_tag["PESO"].astype(str).str.replace(",", ".")
-                 peso_usado = pd.to_numeric(s, errors='coerce').fillna(0.0).sum()
-                 
-            return letras_usadas, peso_usado
-            
+        response = client.table("estoque_subtags").select("*").eq("ID_Pai", int(tag_pai_id)).execute()
+        if not response.data: return [], 0.0
+        df = pd.DataFrame(response.data)
+        letras_usadas = df["Letra"].astype(str).str.strip().str.upper().tolist() if "Letra" in df.columns else []
+        peso_usado = pd.to_numeric(df["Peso"], errors='coerce').fillna(0.0).sum() if "Peso" in df.columns else 0.0
+        return letras_usadas, peso_usado
     except Exception:
         return [], 0.0
-    
-    return [], 0.0
-
-# --- ADICIONE AO FINAL DE services/database.py ---
 
 def get_resumo_global_salmao():
-    """
-    Retorna contagens totais de todo o estoque (sem filtro de tags).
-    Retorna: (total, livre, gerado, orcamento, reservado)
-    """
-    sh = get_connection()
+    client = get_db_client()
     try:
-        ws = sh.worksheet("Recebimento_Salmão")
-        # Pega todos os registros para contagem global
-        dados = ws.get_all_records()
+        response = client.table("estoque_salmao").select("Status").execute()
+        dados = response.data
+        if not dados: return 0, 0, 0, 0, 0
         df = pd.DataFrame(dados)
-        
-        if df.empty or "Status" not in df.columns:
-            return 0, 0, 0, 0, 0
-            
-        # Normaliza para garantir contagem correta
         s = df["Status"].astype(str).str.strip().str.capitalize()
-        
-        total = len(df)
-        livre = len(s[s == "Livre"])
-        gerado = len(s[s == "Gerado"])
-        
-        # 'Orçamento' pode ter variações de encoding, garantimos com startswith ou contains se necessário, 
-        # mas capitalize() deve resolver se estiver salvo corretamente.
-        orcamento = len(s[s == "Orçamento"]) 
-        reservado = len(s[s == "Reservado"])
-        
-        return total, livre, gerado, orcamento, reservado
+        return len(df), len(s[s == "Livre"]), len(s[s == "Gerado"]), len(s[s == "Orçamento"]), len(s[s == "Reservado"])
     except:
         return 0, 0, 0, 0, 0
 
-# --- PAGINAÇÃO DE PEDIDOS ---
+# --- PAGINAÇÃO PEDIDOS ---
 def buscar_pedidos_paginado(pagina_atual=1, tamanho_pagina=20):
-    """
-    Busca pedidos no Google Sheets de forma paginada.
-    Retorna: 
-        - df (DataFrame): Apenas as linhas da página solicitada.
-        - total_registros (int): Total de pedidos na base (para cálculo de páginas).
-    """
-    sh = get_connection()
-    ws = sh.worksheet("Pedidos")
-    
-    # 1. Busca Cabeçalho (Linha 1) para montar o DataFrame corretamente
-    cabecalhos = ws.row_values(1)
-    
-    # 2. Busca Total de Linhas (Baseado na Coluna A - ID)
-    # Isso é muito mais rápido do que carregar a planilha toda
-    col_ids = ws.col_values(1)
-    total_linhas_sheet = len(col_ids)
-    total_registros = max(0, total_linhas_sheet - 1) # Desconta cabeçalho
-    
-    # 3. Calcula o intervalo de linhas (Start/End)
-    # Linha 1 é cabeçalho. Dados começam na Linha 2.
-    inicio = ((pagina_atual - 1) * tamanho_pagina) + 2
+    client = get_db_client()
+    inicio = (pagina_atual - 1) * tamanho_pagina
     fim = inicio + tamanho_pagina - 1
     
-    # Validações de limites
-    if inicio > total_linhas_sheet:
-        return pd.DataFrame(columns=cabecalhos), total_registros
-    
-    if fim > total_linhas_sheet:
-        fim = total_linhas_sheet
+    try:
+        response = client.table("pedidos")\
+            .select("*", count="exact")\
+            .order("ID_PEDIDO", desc=True)\
+            .range(inicio, fim)\
+            .execute()
+            
+        total_registros = response.count if response.count is not None else 0
+        df = pd.DataFrame(response.data)
+        if df.empty:
+            df = pd.DataFrame(columns=["ID_PEDIDO", "COD CLIENTE", "NOME CLIENTE", "CIDADE", "STATUS", "DIA DA ENTREGA", "PEDIDO"])
+        return df, total_registros
+    except Exception as e:
+        st.error(f"Erro na paginação: {e}")
+        return pd.DataFrame(), 0
 
-    # 4. Define o Range A1 (Ex: "A2:Z21")
-    # Função auxiliar para pegar a letra da coluna (ex: 10 -> J, 27 -> AA)
-    def get_col_letter(n):
-        string = ""
-        while n > 0:
-            n, remainder = divmod(n - 1, 26)
-            string = chr(65 + remainder) + string
-        return string
-
-    letra_ultima_coluna = get_col_letter(len(cabecalhos))
-    range_busca = f"A{inicio}:{letra_ultima_coluna}{fim}"
-    
-    # 5. Busca apenas os dados daquele intervalo
-    dados = ws.get(range_busca)
-    
-    if not dados:
-        return pd.DataFrame(columns=cabecalhos), total_registros
-
-    # Garante consistência de colunas (caso o Google Sheets não envie células vazias do final)
-    dados_ajustados = []
-    for linha in dados:
-        if len(linha) < len(cabecalhos):
-            linha += [""] * (len(cabecalhos) - len(linha))
-        dados_ajustados.append(linha)
-
-    # Cria o DataFrame
-    df = pd.DataFrame(dados_ajustados, columns=cabecalhos)
-    
-    return df, total_registros
-
-# --- PAGINAÇÃO DE CLIENTES ---
+# --- PAGINAÇÃO CLIENTES ---
 def buscar_clientes_paginado(pagina_atual=1, tamanho_pagina=20):
-    """
-    Busca clientes no Google Sheets de forma paginada.
-    """
-    sh = get_connection()
-    ws = sh.worksheet("BaseClientes")
-    
-    # 1. Busca Cabeçalho
-    cabecalhos = ws.row_values(1)
-    
-    # 2. Busca Total (Baseado na Coluna A - Código)
-    col_ids = ws.col_values(1)
-    total_linhas_sheet = len(col_ids)
-    total_registros = max(0, total_linhas_sheet - 1)
-    
-    # 3. Calcula intervalo
-    inicio = ((pagina_atual - 1) * tamanho_pagina) + 2
+    client = get_db_client()
+    inicio = (pagina_atual - 1) * tamanho_pagina
     fim = inicio + tamanho_pagina - 1
     
-    if inicio > total_linhas_sheet:
-        return pd.DataFrame(columns=cabecalhos), total_registros
+    try:
+        response = client.table("clientes")\
+            .select("*", count="exact")\
+            .order("Cliente", desc=False)\
+            .range(inicio, fim)\
+            .execute()
+            
+        total_registros = response.count if response.count is not None else 0
+        df = pd.DataFrame(response.data)
+        if df.empty:
+            df = pd.DataFrame(columns=["Código", "Cliente", "Nome Cidade", "ROTA"])
+        return df, total_registros
+    except Exception as e:
+        st.error(f"Erro clientes: {e}")
+        return pd.DataFrame(), 0
     
-    if fim > total_linhas_sheet:
-        fim = total_linhas_sheet
-
-    # 4. Define Range e Busca
-    def get_col_letter(n):
-        string = ""
-        while n > 0:
-            n, remainder = divmod(n - 1, 26)
-            string = chr(65 + remainder) + string
-        return string
-
-    letra_ultima_coluna = get_col_letter(len(cabecalhos))
-    range_busca = f"A{inicio}:{letra_ultima_coluna}{fim}"
+def arquivar_tags_geradas(ids_tags, usuario_logado="Sistema"):
+    """
+    Move dados para backup e LIMPA a tag no estoque para novo uso.
+    """
+    if not ids_tags:
+        return
     
-    dados = ws.get(range_busca)
+    client = get_db_client()
+    timestamp = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
     
-    if not dados:
-        return pd.DataFrame(columns=cabecalhos), total_registros
+    # Limpa o cache para garantir atualização imediata
+    get_estoque_filtrado.clear()
+    
+    # RESET TOTAL: Agora incluindo o Status como None
+    dados_reset = {
+        "Status": None,
+        "Calibre": None,
+        "Peso": 0.0,
+        "Cliente": None,
+        "Fornecedor": None,
+        "Validade": None
+    }
+    
+    try:
+        for tag_id in ids_tags:
+            # 1. Backup da Tag principal
+            resp_pai = client.table("estoque_salmao").select("*").eq("Tag", int(tag_id)).execute()
+            if resp_pai.data:
+                dados_pai = resp_pai.data[0]
+                client.table("estoque_salmao_backup").insert(dados_pai).execute()
+                
+                # 2. Backup e Eliminação das Subtags
+                resp_sub = client.table("estoque_subtags").select("*").eq("ID_Pai", int(tag_id)).execute()
+                if resp_sub.data:
+                    client.table("estoque_subtags_backup").insert(resp_sub.data).execute()
+                    client.table("estoque_subtags").delete().eq("ID_Pai", int(tag_id)).execute()
+                
+                # 3. RESET da Tag (Limpa todos os campos)
+                client.table("estoque_salmao").update(dados_reset).eq("Tag", int(tag_id)).execute()
+                
+                # 4. Registo de Log
+                client.table("logs").insert({
+                    "DATA_HORA": timestamp,
+                    "USUARIO": usuario_logado,
+                    "CAMPO": "ARQUIVAMENTO_RESET",
+                    "VALOR_ANTIGO": f"TAG-{tag_id}",
+                    "VALOR_NOVO": "Reset Total (Status None)"
+                }).execute()
+        
+        get_estoque_filtrado.clear()
+        return True
+    except Exception as e:
+        st.error(f"Erro ao processar: {e}")
+        return False
 
-    # Ajusta colunas vazias
-    dados_ajustados = []
-    for linha in dados:
-        if len(linha) < len(cabecalhos):
-            linha += [""] * (len(cabecalhos) - len(linha))
-        dados_ajustados.append(linha)
-
-    df = pd.DataFrame(dados_ajustados, columns=cabecalhos)
-    return df, total_registros
+def get_resumo_global_salmao():
+    """Retorna métricas tratando Status vazio (None) como 'Livre'."""
+    client = get_db_client()
+    try:
+        response = client.table("estoque_salmao").select("Status").execute()
+        dados = response.data
+        if not dados: return 0, 0, 0, 0, 0
+        
+        df = pd.DataFrame(dados)
+        # Substitui valores nulos por 'Livre' apenas para o cálculo das métricas
+        s = df["Status"].fillna("Livre").astype(str).str.strip().str.capitalize()
+        
+        return (
+            len(df), 
+            len(s[s == "Livre"]), 
+            len(s[s == "Gerado"]), 
+            len(s[s == "Orçamento"]), 
+            len(s[s == "Reservado"])
+        )
+    except:
+        return 0, 0, 0, 0, 0

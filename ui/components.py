@@ -224,3 +224,18 @@ def render_pagination(pagina_atual, total_paginas):
             nova_pagina = min(total_paginas, pagina_atual + 1)
 
     return nova_pagina
+
+def proxima_letra_disponivel(letras_usadas):
+    """
+    Recebe uma lista de letras já usadas (ex: ['A', 'B']) 
+    e retorna a próxima disponível (ex: 'C').
+    """
+    alfabeto = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    # Garante que a lista de entrada esteja limpa e maiúscula
+    usadas_limpas = [str(l).strip().upper() for l in letras_usadas]
+    
+    for letra in alfabeto:
+        if letra not in usadas_limpas:
+            return letra
+            
+    return "X" # Retorno de segurança se acabar o alfabeto
