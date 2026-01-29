@@ -22,9 +22,25 @@ def aplicar_estilos(perfil="Admin"):
     # --- 3. INJEÇÃO DE ESTILOS CSS ---
     st.markdown(f"""
     <style>
-        /* --- CONFIGURAÇÕES GERAIS --- */
-        .main {{ 
-            background-color: #0E1117; 
+        /* --- CONFIGURAÇÕES GERAIS (Aumento Global + Forçar Dark Mode) --- */
+        
+        /* Adicionei !important nas cores para o Light Mode não deixar tudo branco */
+        .main, .stApp, [data-testid="stSidebar"] {{ 
+            background-color: #0E1117 !important; 
+            color: #FAFAFA !important;
+            font-size: 18px !important;
+        }}
+
+        /* Títulos */
+        h1, h2, h3 {{
+            font-size: 2.2rem !important;
+            color: #FAFAFA !important;
+        }}
+
+        /* Textos gerais e labels */
+        .stMarkdown p, div[data-testid="stText"], label, .stTextInput > label, .stNumberInput > label, .stSelectbox > label {{
+            font-size: 1.1rem !important;
+            color: #FAFAFA !important;
         }}
         
         /* --- SIDEBAR: CARD DO USUÁRIO --- */
@@ -37,13 +53,13 @@ def aplicar_estilos(perfil="Admin"):
             text-align: center;
         }}
         .user-name {{
-            color: #e6e6e6;
+            color: #e6e6e6 !important;
             font-weight: bold;
             font-size: 1.1em;
             margin: 0;
         }}
         .user-role {{
-            color: {c_prin}; /* Cor dinâmica do perfil */
+            color: {c_prin} !important;
             font-size: 0.9em;
             margin: 0;
             text-transform: uppercase;
@@ -54,18 +70,18 @@ def aplicar_estilos(perfil="Admin"):
         .metric-container {{
             background-color: #161b22;
             border: 1px solid #30363d;
-            border-left: 5px solid {c_prin}; /* Borda dinâmica */
+            border-left: 5px solid {c_prin};
             border-radius: 8px;
             padding: 15px;
             margin-bottom: 10px;
         }}
         .metric-label {{
-            color: #8b949e;
+            color: #8b949e !important;
             font-size: 0.85em;
             margin: 0;
         }}
         .metric-value {{
-            color: #f0f6fc;
+            color: #f0f6fc !important;
             font-size: 1.5em;
             font-weight: bold;
             margin: 0;
@@ -90,28 +106,27 @@ def aplicar_estilos(perfil="Admin"):
             height: 100%;
         }}
         .status-card-label {{
-            color: #8b949e;
+            color: #8b949e !important;
             font-size: 0.85em;
             margin-bottom: 5px;
             display: block;
         }}
         .status-card-value {{
-            color: #f0f6fc;
+            color: #f0f6fc !important;
             font-size: 1.5em;
             font-weight: bold;
             display: block;
         }}
         
         /* --- VARIAÇÕES DE SAÚDE (Borda Lateral) --- */
-        /* Estas classes correspondem à lógica no dashboard.py */
         .saude-baixa {{
-            border-left: 5px solid #d9534f; /* Vermelho */
+            border-left: 5px solid #d9534f; 
         }}
         .saude-media {{
-            border-left: 5px solid #ffa500; /* Laranja */
+            border-left: 5px solid #ffa500; 
         }}
         .saude-alta {{
-            border-left: 5px solid #28a745; /* Verde */
+            border-left: 5px solid #28a745; 
         }}
         
         /* --- STATUS BADGES --- */
@@ -133,7 +148,7 @@ def aplicar_estilos(perfil="Admin"):
         [data-testid="stVerticalBlockBorderWrapper"] {{
             border-radius: 12px;
             border: 1px solid #30363d !important;
-            background-color: #161b22;
+            background-color: #161b22 !important;
             padding: 15px;
         }}
 
