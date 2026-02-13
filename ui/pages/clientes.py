@@ -3,6 +3,7 @@ import time
 import math
 import services.database as db
 import ui.components as components
+from ui.plotly_theme import aplicar_tema_plotly
 
 def render_page(hash_dados, perfil):
     st.subheader("➕ Gestão de Clientes")

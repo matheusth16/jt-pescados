@@ -4,12 +4,12 @@ from core.config import PALETA_CORES
 def aplicar_estilos(perfil="Admin"):
     """
     Aplica todo o design system do JT Pescados e injeta o CSS global.
-    
+
     Retorna:
         dict: Um dicionário com as cores ativas (principal, destaque, etc.)
               para serem usadas na lógica do Python (ex: gráficos).
     """
-    
+
     # --- 2. SELEÇÃO DO TEMA ---
     # Busca as cores no dicionário global com fallback para Admin se der erro
     tema_ativo = PALETA_CORES["TEMA"].get(perfil, PALETA_CORES["TEMA"]["Admin"])
@@ -19,31 +19,102 @@ def aplicar_estilos(perfil="Admin"):
     c_dest = tema_ativo["destaque"]
     c_bg   = tema_ativo["bg_card_sutil"]
 
+    # Você pode ajustar aqui se quiser aumentar/diminuir tudo de uma vez:
+    base_font_px = 20  # 18~22 costuma ser bom. Você pediu aumentar: deixei 20.
+    label_font_px = 18
+    input_font_px = 18
+
     # --- 3. INJEÇÃO DE ESTILOS CSS ---
     st.markdown(f"""
     <style>
-        /* --- CONFIGURAÇÕES GERAIS (Aumento Global + Forçar Dark Mode) --- */
-        
-        /* Adicionei !important nas cores para o Light Mode não deixar tudo branco */
-        .main, .stApp, [data-testid="stSidebar"] {{ 
-            background-color: #0E1117 !important; 
+        /* ============================================================
+           BASE GLOBAL (Dark + Tipografia maior que realmente aplica)
+           ============================================================ */
+
+        html, body {{
+            background-color: #0E1117 !important;
             color: #FAFAFA !important;
-            font-size: 22px !important;
+            font-size: {base_font_px}px !important;
         }}
 
-        /* Títulos */
-        h1, h2, h3 {{
+        .stApp {{
+            background-color: #0E1117 !important;
+            color: #FAFAFA !important;
+        }}
+
+        /* Sidebar (garante dark + fonte maior) */
+        [data-testid="stSidebar"] {{
+            background-color: #0E1117 !important;
+            color: #FAFAFA !important;
+            font-size: {base_font_px}px !important;
+        }}
+
+        /* Streamlit às vezes coloca texto dentro desses containers */
+        .main, section.main, .block-container {{
+            color: #FAFAFA !important;
+        }}
+
+        /* ============================================================
+           TÍTULOS (tamanhos diferenciados)
+           ============================================================ */
+        h1 {{
             font-size: 2.2rem !important;
             color: #FAFAFA !important;
         }}
-
-        /* Textos gerais e labels */
-        .stMarkdown p, div[data-testid="stText"], label, .stTextInput > label, .stNumberInput > label, .stSelectbox > label {{
-            font-size: 1.3rem !important;
+        h2 {{
+            font-size: 1.8rem !important;
             color: #FAFAFA !important;
         }}
-        
-        /* --- SIDEBAR: CARD DO USUÁRIO --- */
+        h3 {{
+            font-size: 1.4rem !important;
+            color: #FAFAFA !important;
+        }}
+
+        /* ============================================================
+           TEXTOS / LABELS
+           ============================================================ */
+        .stMarkdown, .stMarkdown p,
+        div[data-testid="stText"],
+        div[data-testid="stMarkdownContainer"] p {{
+            font-size: {base_font_px}px !important;
+            color: #FAFAFA !important;
+            line-height: 1.35;
+        }}
+
+        /* Labels de inputs/selects (onde geralmente fica pequeno) */
+        label,
+        .stTextInput > label,
+        .stNumberInput > label,
+        .stSelectbox > label,
+        .stMultiSelect > label,
+        .stTextArea > label,
+        .stDateInput > label,
+        .stTimeInput > label {{
+            font-size: {label_font_px}px !important;
+            color: #FAFAFA !important;
+        }}
+
+        /* ============================================================
+           INPUTS / SELECTS / TEXTAREA (fonte interna)
+           ============================================================ */
+        input, textarea {{
+            font-size: {input_font_px}px !important;
+        }}
+
+        /* Selectbox/Multiselect/DateInput costumam renderizar como botões/div */
+        div[data-baseweb="select"] * {{
+            font-size: {input_font_px}px !important;
+        }}
+        div[data-baseweb="input"] * {{
+            font-size: {input_font_px}px !important;
+        }}
+        div[data-baseweb="textarea"] * {{
+            font-size: {input_font_px}px !important;
+        }}
+
+        /* ============================================================
+           SIDEBAR: CARD DO USUÁRIO
+           ============================================================ */
         .user-card {{
             background-color: rgba(255, 255, 255, 0.05);
             border: 1px solid rgba(255, 255, 255, 0.1);
@@ -66,7 +137,9 @@ def aplicar_estilos(perfil="Admin"):
             letter-spacing: 1px;
         }}
 
-        /* --- METRIC CARDS (TOPO) --- */
+        /* ============================================================
+           METRIC CARDS (TOPO)
+           ============================================================ */
         .metric-container {{
             background-color: #161b22;
             border: 1px solid #30363d;
@@ -77,17 +150,19 @@ def aplicar_estilos(perfil="Admin"):
         }}
         .metric-label {{
             color: #8b949e !important;
-            font-size: 0.85em;
+            font-size: 0.95em;
             margin: 0;
         }}
         .metric-value {{
             color: #f0f6fc !important;
-            font-size: 1.5em;
+            font-size: 1.7em;
             font-weight: bold;
             margin: 0;
         }}
 
-        /* --- PREVIEW CARD (NOVO PEDIDO) --- */
+        /* ============================================================
+           PREVIEW CARD (NOVO PEDIDO)
+           ============================================================ */
         .preview-card {{
             background-color: {c_bg};
             border: 1px solid {c_prin};
@@ -97,7 +172,9 @@ def aplicar_estilos(perfil="Admin"):
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
         }}
 
-        /* --- STATUS CARDS (Dashboard/Operações) --- */
+        /* ============================================================
+           STATUS CARDS (Dashboard/Operações)
+           ============================================================ */
         .status-card {{
             background-color: #161b22;
             border: 1px solid #30363d;
@@ -107,44 +184,41 @@ def aplicar_estilos(perfil="Admin"):
         }}
         .status-card-label {{
             color: #8b949e !important;
-            font-size: 0.85em;
+            font-size: 0.95em;
             margin-bottom: 5px;
             display: block;
         }}
         .status-card-value {{
             color: #f0f6fc !important;
-            font-size: 1.5em;
+            font-size: 1.7em;
             font-weight: bold;
             display: block;
         }}
-        
+
         /* --- VARIAÇÕES DE SAÚDE (Borda Lateral) --- */
-        .saude-baixa {{
-            border-left: 5px solid #d9534f; 
-        }}
-        .saude-media {{
-            border-left: 5px solid #ffa500; 
-        }}
-        .saude-alta {{
-            border-left: 5px solid #28a745; 
-        }}
-        
+        .saude-baixa {{ border-left: 5px solid #d9534f; }}
+        .saude-media {{ border-left: 5px solid #ffa500; }}
+        .saude-alta  {{ border-left: 5px solid #28a745; }}
+
         /* --- STATUS BADGES --- */
         .status-badge {{
             padding: 4px 8px;
             border-radius: 4px;
             font-weight: bold;
-            font-size: 0.85em;
+            font-size: 0.95em;
             display: inline-block;
         }}
-        
+
         /* --- CUSTOM TOAST --- */
         div[data-testid="stToast"] {{
             background-color: {c_dest} !important;
             color: white !important;
+            font-size: {base_font_px}px !important;
         }}
 
-        /* --- CONTAINERS COM BORDA (st.container) --- */
+        /* ============================================================
+           CONTAINERS COM BORDA (st.container)
+           ============================================================ */
         [data-testid="stVerticalBlockBorderWrapper"] {{
             border-radius: 12px;
             border: 1px solid #30363d !important;
@@ -152,7 +226,9 @@ def aplicar_estilos(perfil="Admin"):
             padding: 15px;
         }}
 
-        /* --- BOTÕES E LINKS --- */
+        /* ============================================================
+           BOTÕES E LINKS (e fonte do botão!)
+           ============================================================ */
         .stButton>button, .stLinkButton>a {{
             width: 100%;
             border-radius: 8px;
@@ -163,6 +239,7 @@ def aplicar_estilos(perfil="Admin"):
             text-transform: uppercase;
             letter-spacing: 0.5px;
             height: 3em;
+            font-size: {input_font_px}px !important;
             transition: all 0.3s ease;
         }}
         .stButton>button:hover, .stLinkButton>a:hover {{
@@ -171,19 +248,29 @@ def aplicar_estilos(perfil="Admin"):
             transform: translateY(-2px);
         }}
 
-        /* --- FORMULÁRIOS --- */
+        /* ============================================================
+           FORMULÁRIOS
+           ============================================================ */
         [data-testid="stForm"] {{
             background-color: {c_bg};
             border: 1px solid {c_prin};
             border-radius: 15px;
             padding: 20px;
         }}
-        
-        /* --- AJUSTES TABELAS --- */
+
+        /* ============================================================
+           TABELAS / DATAFRAME (fonte costuma ficar pequena)
+           ============================================================ */
         [data-testid="stDataFrame"] {{
             border: 1px solid #30363d;
             border-radius: 8px;
         }}
+
+        /* AgGrid / DataFrame interno (quando renderiza tabela em HTML) */
+        [data-testid="stDataFrame"] * {{
+            font-size: {input_font_px}px !important;
+        }}
+
     </style>
     """, unsafe_allow_html=True)
 

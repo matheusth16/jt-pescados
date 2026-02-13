@@ -261,9 +261,19 @@ def atualizar_pedidos_editaveis(df_editado, usuario_logado="Sistema"):
                     val_novo = val_novo.strip()
                     if col in ["STATUS", "PAGAMENTO"]:
                         val_novo = val_novo.upper()
-                    
+
                     val_antigo = str(atual_db.get(col, ""))
-                    
+                    val_antigo_limpo = val_antigo.strip()
+
+                    # ✅ REGRA: NR PEDIDO só pode ser definido se estiver vazio no banco
+                    if col == "NR PEDIDO":
+                        # Se já existe NR no banco, NÃO deixa alterar
+                        if val_antigo_limpo != "":
+                            continue  # ignora qualquer tentativa de mudança no NR
+
+                        # Se estava vazio, você pode normalizar/limpar aqui se quiser
+                        # val_novo = limpar_texto(val_novo)
+
                     if val_novo != val_antigo:
                         updates[col] = val_novo
                         logs_batch.append({
@@ -274,6 +284,7 @@ def atualizar_pedidos_editaveis(df_editado, usuario_logado="Sistema"):
                             "VALOR_ANTIGO": val_antigo,
                             "VALOR_NOVO": val_novo
                         })
+
             
             if updates:
                 client.table("pedidos").update(updates).eq("ID_PEDIDO", pid).execute()
