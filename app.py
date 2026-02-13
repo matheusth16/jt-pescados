@@ -28,6 +28,7 @@ def inicializar_sessao():
     if "navegacao_principal" not in st.session_state:
         # valor inicial do menu (vai ser sobrescrito depois do login)
         st.session_state.navegacao_principal = None
+
     if "logado" not in st.session_state:
         st.session_state.logado = False
     if "usuario_nome" not in st.session_state:
@@ -53,8 +54,10 @@ def inicializar_sessao():
     if "nav_page" not in st.session_state:
         st.session_state.nav_page = None
 
+
 # Inicializa as variáveis assim que o script roda
 inicializar_sessao()
+
 
 # --- 2. TELA DE LOGIN ---
 def tela_login():
@@ -83,6 +86,7 @@ def tela_login():
                 except Exception as e:
                     components.render_error_details("Erro técnico no login.", e)
 
+
 # --- 3. SISTEMA PRINCIPAL (ROTEADOR) ---
 if not st.session_state.logado:
     tela_login()
@@ -110,6 +114,7 @@ else:
             st.session_state.logado = False
             st.session_state.filtro_status_dash = None
             st.session_state.nav_page = None
+            st.session_state.navegacao_principal = None
             st.rerun()
 
     # 3.2. Header e Métricas Topo
@@ -121,9 +126,12 @@ else:
         qtd_cli, qtd_ped = "-", "-"
 
     m1, m2, m3 = st.columns(3)
-    with m1: components.render_metric_card("👥 Total Clientes", qtd_cli, "#58a6ff")
-    with m2: components.render_metric_card("📦 Pedidos Totais", qtd_ped, "#f1e05a")
-    with m3: components.render_metric_card("👤 Usuário Logado", NOME_USER, "#238636")
+    with m1:
+        components.render_metric_card("👥 Total Clientes", qtd_cli, "#58a6ff")
+    with m2:
+        components.render_metric_card("📦 Pedidos Totais", qtd_ped, "#f1e05a")
+    with m3:
+        components.render_metric_card("👤 Usuário Logado", NOME_USER, "#238636")
 
     # ✅ 3.3. ROTEAMENTO INTERNO (sem aparecer no menu)
     if st.session_state.nav_page == "gerenciar_edicao":
@@ -132,7 +140,7 @@ else:
         if PERFIL == "Admin":
             st.warning("⛔ Acesso negado. Tela de edição é exclusiva para OP.")
             st.session_state.nav_page = None
-            st.session_state["navegacao_principal"] = "👁️ Gerenciar"
+            st.session_state.navegacao_principal = "👁️ Gerenciar"
             st.rerun()
 
         # ✅ GARANTIA: se não houver pedido selecionado, volta pra tabela
@@ -141,28 +149,55 @@ else:
 
         if pedido_sel is None and (pedido_id is None or str(pedido_id).strip() == ""):
             st.session_state.nav_page = None
-            st.session_state["navegacao_principal"] = "🚚 Operações"
+            st.session_state.navegacao_principal = "🚚 Operações"
             st.rerun()
 
         # Renderiza a página de edição e encerra este fluxo de navegação
         page_gerenciar_edicao.render_page(hash_dados, PERFIL, NOME_USER)
         st.stop()
 
-    # 3.4. Menu de Navegação Dinâmico
+    # 3.4. MENU NO TOPO (BOTÕES)
     if PERFIL == "Admin":
-        opcoes = ["📈 Dashboard", "📝 Novo Pedido", "👁️ Gerenciar", "🐟 Recebimento de Salmão", "➕ Clientes"]
+        opcoes = [
+            ("📈 Dashboard", "📈 Dashboard"),
+            ("📝 Novo Pedido", "📝 Novo Pedido"),
+            ("👁️ Gerenciar", "👁️ Gerenciar"),
+            ("🐟 Salmão", "🐟 Recebimento de Salmão"),
+            ("➕ Clientes", "➕ Clientes"),
+        ]
     else:
-        opcoes = ["🚚 Operações", "🐟 Recebimento de Salmão", "📈 Indicadores"]
+        opcoes = [
+            ("🚚 Operações", "🚚 Operações"),
+            ("🐟 Salmão", "🐟 Recebimento de Salmão"),
+            ("📈 Indicadores", "📈 Indicadores"),
+        ]
 
+    # valor inicial
     if st.session_state.navegacao_principal is None:
-        st.session_state.navegacao_principal = "📈 Dashboard" if PERFIL == "Admin" else "🚚 Operações"
+        st.session_state.navegacao_principal = opcoes[0][1]
 
-    escolha_nav = st.segmented_control(
-    "Menu Principal",
-    opcoes,
-    selection_mode="single",
-    key="navegacao_principal"
-)
+    # wrapper para CSS do menu topo (top-nav)
+    st.markdown('<div class="top-nav">', unsafe_allow_html=True)
+
+    cols = st.columns(len(opcoes))
+    for i, (label_btn, valor_state) in enumerate(opcoes):
+        with cols[i]:
+            ativo = (st.session_state.navegacao_principal == valor_state)
+
+            if ativo:
+                st.markdown('<div class="nav-active">', unsafe_allow_html=True)
+
+            if st.button(label_btn, use_container_width=True, key=f"topnav_{i}"):
+                st.session_state.navegacao_principal = valor_state
+                st.rerun()
+
+            if ativo:
+                st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # ✅ ESSENCIAL: escolha_nav sempre definido
+    escolha_nav = st.session_state.navegacao_principal
 
     st.markdown("---")
 

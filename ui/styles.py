@@ -10,8 +10,7 @@ def aplicar_estilos(perfil="Admin"):
               para serem usadas na lógica do Python (ex: gráficos).
     """
 
-    # --- 2. SELEÇÃO DO TEMA ---
-    # Busca as cores no dicionário global com fallback para Admin se der erro
+    # --- 1) SELEÇÃO DO TEMA ---
     tema_ativo = PALETA_CORES["TEMA"].get(perfil, PALETA_CORES["TEMA"]["Admin"])
 
     # Variáveis locais para facilitar a injeção no f-string abaixo
@@ -20,15 +19,15 @@ def aplicar_estilos(perfil="Admin"):
     c_bg   = tema_ativo["bg_card_sutil"]
 
     # Você pode ajustar aqui se quiser aumentar/diminuir tudo de uma vez:
-    base_font_px = 20  # 18~22 costuma ser bom. Você pediu aumentar: deixei 20.
+    base_font_px  = 20  # 18~22 costuma ser bom
     label_font_px = 18
     input_font_px = 18
 
-    # --- 3. INJEÇÃO DE ESTILOS CSS ---
+    # --- 2) CSS GLOBAL (COM VARIÁVEIS -> precisa ser f-string) ---
     st.markdown(f"""
     <style>
         /* ============================================================
-           BASE GLOBAL (Dark + Tipografia maior que realmente aplica)
+           BASE GLOBAL (Dark + Tipografia maior)
            ============================================================ */
 
         html, body {{
@@ -55,7 +54,7 @@ def aplicar_estilos(perfil="Admin"):
         }}
 
         /* ============================================================
-           TÍTULOS (tamanhos diferenciados)
+           TÍTULOS
            ============================================================ */
         h1 {{
             font-size: 2.2rem !important;
@@ -81,7 +80,7 @@ def aplicar_estilos(perfil="Admin"):
             line-height: 1.35;
         }}
 
-        /* Labels de inputs/selects (onde geralmente fica pequeno) */
+        /* Labels de inputs/selects */
         label,
         .stTextInput > label,
         .stNumberInput > label,
@@ -101,7 +100,6 @@ def aplicar_estilos(perfil="Admin"):
             font-size: {input_font_px}px !important;
         }}
 
-        /* Selectbox/Multiselect/DateInput costumam renderizar como botões/div */
         div[data-baseweb="select"] * {{
             font-size: {input_font_px}px !important;
         }}
@@ -227,7 +225,7 @@ def aplicar_estilos(perfil="Admin"):
         }}
 
         /* ============================================================
-           BOTÕES E LINKS (e fonte do botão!)
+           BOTÕES E LINKS (fonte do botão!)
            ============================================================ */
         .stButton>button, .stLinkButton>a {{
             width: 100%;
@@ -266,11 +264,33 @@ def aplicar_estilos(perfil="Admin"):
             border-radius: 8px;
         }}
 
-        /* AgGrid / DataFrame interno (quando renderiza tabela em HTML) */
         [data-testid="stDataFrame"] * {{
             font-size: {input_font_px}px !important;
         }}
+    </style>
+    """, unsafe_allow_html=True)
 
+    # --- 3) CSS DO TOP NAV (SEM f-string para não dar NameError) ---
+    st.markdown("""
+    <style>
+        /* ============================================================
+           TOP NAV (botões do menu no topo)
+           ============================================================ */
+
+        .top-nav .stButton>button {
+            height: 2.6em !important;
+            border-radius: 10px !important;
+            text-transform: none !important;
+            letter-spacing: 0px !important;
+            font-weight: 700 !important;
+            font-size: 16px !important;
+            padding: 0.35rem 0.6rem !important;
+        }
+
+        .top-nav .nav-active .stButton>button {
+            outline: 2px solid rgba(255,255,255,0.25) !important;
+            filter: brightness(1.15);
+        }
     </style>
     """, unsafe_allow_html=True)
 
