@@ -319,6 +319,7 @@ def aplicar_estilos(perfil="Admin"):
         [data-testid="stDataFrame"] * {{
             font-size: {input_font_px}px !important;
         }}
+
     </style>
     """, unsafe_allow_html=True)
 

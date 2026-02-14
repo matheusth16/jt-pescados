@@ -5,19 +5,39 @@ import services.database as db
 import ui.components as components
 from ui.plotly_theme import aplicar_tema_plotly
 
+
+def _is_mobile(breakpoint: int = 768) -> bool:
+    """
+    Detecta mobile via JS (largura de tela).
+    - Requer: pip install streamlit-javascript
+    - Fallback: se não estiver instalado, assume desktop (tabela).
+    """
+    try:
+        from streamlit_javascript import st_javascript  # type: ignore
+        w = st_javascript("window.innerWidth")
+        try:
+            return int(w) < breakpoint
+        except Exception:
+            return False
+    except Exception:
+        return False
+
+
 def render_page(hash_dados, perfil):
     st.subheader("➕ Gestão de Clientes")
-    
+
     # --- FORMULÁRIO DE CADASTRO (MANTIDO IGUAL) ---
     with st.container(border=True):
         with st.form("cad_cli", clear_on_submit=True):
             nn = st.text_input("Nome do Cliente / Empresa", placeholder="Razão Social ou Nome Fantasia")
             c1, c2 = st.columns(2)
-            with c1: cc = st.text_input("Cidade", value="SÃO CARLOS")
-            with c2: doc_raw = st.text_input("CPF/CNPJ", placeholder="Digite apenas os números")
-            
+            with c1:
+                cc = st.text_input("Cidade", value="SÃO CARLOS")
+            with c2:
+                doc_raw = st.text_input("CPF/CNPJ", placeholder="Digite apenas os números")
+
             doc_limpo = "".join(filter(str.isdigit, doc_raw))
-            
+
             st.markdown("<br>", unsafe_allow_html=True)
             if st.form_submit_button("SALVAR NOVO CLIENTE", use_container_width=True):
                 if not nn:
@@ -35,41 +55,66 @@ def render_page(hash_dados, perfil):
 
     st.markdown("---")
     st.markdown("### 🔍 Clientes já Cadastrados")
-    
+
     # --- LÓGICA DE PAGINAÇÃO ---
     if "pag_atual_clientes" not in st.session_state:
         st.session_state["pag_atual_clientes"] = 1
-        
+
     TAMANHO_PAGINA = 20
-    
+
     # Busca apenas os 20 clientes da página atual e o total
-    # OTIMIZAÇÃO: O banco agora retorna apenas as colunas: Código, Cliente, Nome Cidade, CPF/CNPJ, ROTA
-    df_clientes_view, total_registros = db.buscar_clientes_paginado(st.session_state["pag_atual_clientes"], TAMANHO_PAGINA)
-    
-    # Calcula total de páginas
-    total_paginas = math.ceil(total_registros / TAMANHO_PAGINA)
-    
+    # OTIMIZAÇÃO: O banco retorna apenas as colunas: Código, Cliente, Nome Cidade, CPF/CNPJ, ROTA
+    df_clientes_view, total_registros = db.buscar_clientes_paginado(
+        st.session_state["pag_atual_clientes"],
+        TAMANHO_PAGINA
+    )
+
+    total_paginas = math.ceil(total_registros / TAMANHO_PAGINA) if TAMANHO_PAGINA > 0 else 1
+
     if not df_clientes_view.empty:
-        # Mostra contador global
         st.caption(f"Total de registros na base: **{total_registros}**")
-        
-        # Configuração da Tabela
-        # Removemos 'created_at' pois ela não é mais baixada do banco (economia de dados)
-        st.dataframe(df_clientes_view, use_container_width=True, hide_index=True, column_config={
-                "Código": st.column_config.NumberColumn("ID", format="%d", width="small"),
-                "Cliente": st.column_config.TextColumn("👤 Cliente", width="medium"),
-                "Nome Cidade": st.column_config.TextColumn("📍 Cidade"),
-                "CPF/CNPJ": st.column_config.TextColumn("🆔 Documento"),
-                "ROTA": st.column_config.TextColumn("🚚 Rota")
-        })
-        
+
+        mobile = _is_mobile()
+
+        # ============================================================
+        # ✅ RENDERIZA APENAS 1 MODO (robusto)
+        # ============================================================
+        if not mobile:
+            # DESKTOP = TABELA
+            st.dataframe(
+                df_clientes_view,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Código": st.column_config.NumberColumn("ID", format="%d", width="small"),
+                    "Cliente": st.column_config.TextColumn("👤 Cliente", width="medium"),
+                    "Nome Cidade": st.column_config.TextColumn("📍 Cidade"),
+                    "CPF/CNPJ": st.column_config.TextColumn("🆔 Documento"),
+                    "ROTA": st.column_config.TextColumn("🚚 Rota"),
+                }
+            )
+        else:
+            # MOBILE = LISTA (cards)
+            components.render_df_as_list_cards(
+                df_clientes_view,
+                id_col="Código",
+                title_col="Cliente",
+                subtitle_cols=["Nome Cidade", "ROTA"],
+                fields=[
+                    ("Documento", "CPF/CNPJ"),
+                    ("Cidade", "Nome Cidade"),
+                    ("Rota", "ROTA"),
+                ],
+                action_label=None,
+                action_key_prefix="cli_card"
+            )
+
         # --- CONTROLES DE PAGINAÇÃO ---
         nova_pagina = components.render_pagination(st.session_state["pag_atual_clientes"], total_paginas)
-        
         if nova_pagina != st.session_state["pag_atual_clientes"]:
             st.session_state["pag_atual_clientes"] = nova_pagina
             st.rerun()
-            
+
     else:
         st.info("Nenhum cliente encontrado nesta página.")
         if total_paginas > 0:

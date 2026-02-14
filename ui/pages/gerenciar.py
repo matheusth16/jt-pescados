@@ -10,6 +10,23 @@ from datetime import datetime
 from core.config import LISTA_STATUS, LISTA_PAGAMENTO, PALETA_CORES
 
 
+def _is_mobile(breakpoint: int = 768) -> bool:
+    """
+    Detecta mobile via JS (largura de tela).
+    - Requer: pip install streamlit-javascript
+    - Fallback: se não estiver instalado, assume desktop (tabela).
+    """
+    try:
+        from streamlit_javascript import st_javascript  # type: ignore
+        w = st_javascript("window.innerWidth")
+        try:
+            return int(w) < breakpoint
+        except Exception:
+            return False
+    except Exception:
+        return False
+
+
 # --- FUNÇÃO AUXILIAR DE ESTILO (FORMATAÇÃO CONDICIONAL) ---
 def highlight_status(val):
     val_limpo = str(val).strip()
@@ -25,24 +42,18 @@ def _tentar_navegar_para_edicao():
     - Se você usa Streamlit multipage padrão, st.switch_page deve funcionar.
     - Se você usa roteador próprio no app.py, cai no fallback via session_state.
     """
-    # ✅ Tentativa 1: Streamlit multipage
     try:
-        # Ajuste o caminho se a sua estrutura for diferente.
-        # Se sua página estiver em "pages/gerenciar_edicao.py", use exatamente isso.
         st.switch_page("ui/pages/gerenciar_edicao.py")
         return
     except Exception:
         pass
 
-    # ✅ Fallback: para apps com roteamento manual (app.py lê essa chave)
     st.session_state["nav_page"] = "gerenciar_edicao"
     st.rerun()
 
 
-# --- COMPONENTE: MODAL DE DETALHES (LEITURA) ---
 @st.dialog("📦 Detalhes do Pedido")
 def mostrar_detalhes_pedido(row, perfil, nome_user):
-    # Padroniza chaves para evitar diferença de maiúsculas
     row = {str(k).upper().strip(): v for k, v in dict(row).items()}
 
     st.markdown(f"### 🆔 Pedido #{row.get('ID_PEDIDO', '')}")
@@ -75,10 +86,11 @@ def mostrar_detalhes_pedido(row, perfil, nome_user):
     val_nr_atual = row.get('NR PEDIDO', '')
     val_obs_atual = row.get('OBSERVAÇÃO', '')
 
-    if pd.isna(val_nr_atual): val_nr_atual = ""
-    if pd.isna(val_obs_atual): val_obs_atual = ""
+    if pd.isna(val_nr_atual):
+        val_nr_atual = ""
+    if pd.isna(val_obs_atual):
+        val_obs_atual = ""
 
-    # Bloco leitura (Admin e OP)
     c_read1, c_read2 = st.columns(2)
     with c_read1:
         st.markdown("**📊 Status:**")
@@ -92,25 +104,16 @@ def mostrar_detalhes_pedido(row, perfil, nome_user):
         st.write(val_pagamento_atual)
 
     st.markdown("<br>", unsafe_allow_html=True)
-    if val_nr_atual:
-        st.info(f"🔢 **NR:** {val_nr_atual}")
-    else:
-        st.info("🔢 **NR:** (vazio)")
-
-    if val_obs_atual:
-        st.info(f"👀 **Obs:** {val_obs_atual}")
-    else:
-        st.info("👀 **Obs:** (vazio)")
+    st.info(f"🔢 **NR:** {val_nr_atual if val_nr_atual else '(vazio)'}")
+    st.info(f"👀 **Obs:** {val_obs_atual if val_obs_atual else '(vazio)'}")
 
     st.markdown("---")
 
-    # Ação extra para OP: ir para edição (em página separada)
     if perfil != "Admin":
         st.caption("✏️ OP pode editar: Status, Pagamento, NR Pedido (apenas se estiver vazio) e Observação.")
         c_btn1, c_btn2 = st.columns(2)
         with c_btn1:
             if st.button("✏️ Ir para Edição", type="primary", use_container_width=True):
-                # Salva o pedido em session_state para a página gerenciar_edicao.py usar
                 st.session_state["pedido_para_visualizar"] = row
                 st.session_state["pedido_id_edicao"] = row.get("ID_PEDIDO", "")
                 _tentar_navegar_para_edicao()
@@ -122,14 +125,8 @@ def mostrar_detalhes_pedido(row, perfil, nome_user):
             st.rerun()
 
 
-# --- NOVO: FRAGMENTO DA TABELA DE GESTÃO ---
 @st.fragment
 def tabela_gestao_interativa(perfil, nome_user):
-    """
-    Isola a tabela, filtros e paginação.
-    Interagir aqui NÃO recarrega o restante da página (cabeçalho, menu, etc).
-    """
-    # 1. PREPARAÇÃO DOS FILTROS
     opts_cid, opts_rota = db.listar_dados_filtros()
 
     with st.expander("🔍 Filtros de Busca (Processamento no Servidor)", expanded=True):
@@ -144,11 +141,13 @@ def tabela_gestao_interativa(perfil, nome_user):
             f_rota = st.multiselect("Rota:", opts_rota)
 
     filtros_db = {}
-    if f_status: filtros_db["status"] = f_status
-    if f_cidade: filtros_db["cidade"] = f_cidade
-    if f_rota: filtros_db["rota"] = f_rota
+    if f_status:
+        filtros_db["status"] = f_status
+    if f_cidade:
+        filtros_db["cidade"] = f_cidade
+    if f_rota:
+        filtros_db["rota"] = f_rota
 
-    # 2. BUSCA PAGINADA
     TAMANHO_PAGINA = 20
     df_gestao, total_registros = db.buscar_pedidos_paginado(
         pagina_atual=st.session_state["pag_atual_gerenciar"],
@@ -158,58 +157,65 @@ def tabela_gestao_interativa(perfil, nome_user):
 
     total_paginas = math.ceil(total_registros / TAMANHO_PAGINA) if TAMANHO_PAGINA > 0 else 1
 
-    if not df_gestao.empty:
-        df_gestao.columns = [c.upper().strip() for c in df_gestao.columns]
+    if df_gestao.empty:
+        st.info("Nenhum pedido encontrado com os filtros selecionados.")
+        return
 
-        # 3. FILTRO DE DATA (LOCAL)
-        df_display = df_gestao.copy()
-        col_dt_display = next((c for c in df_display.columns if "ENTREGA" in c), None)
+    df_gestao.columns = [c.upper().strip() for c in df_gestao.columns]
 
-        if f_data and col_dt_display and len(f_data) == 2:
-            ini, fim = f_data
-            dts = pd.to_datetime(df_display[col_dt_display], dayfirst=True, errors='coerce').dt.date
-            df_display = df_display[(dts >= ini) & (dts <= fim)]
+    # filtro local de data
+    df_display = df_gestao.copy()
+    col_dt_display = next((c for c in df_display.columns if "ENTREGA" in c), None)
 
-        # 4. EXPORTAÇÃO
-        with st.container():
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                df_display.to_excel(writer, index=False, sheet_name='Pedidos')
+    if f_data and col_dt_display and len(f_data) == 2:
+        ini, fim = f_data
+        dts = pd.to_datetime(df_display[col_dt_display], dayfirst=True, errors='coerce').dt.date
+        df_display = df_display[(dts >= ini) & (dts <= fim)]
 
-            st.download_button(
-                label="📥 Baixar Tabela em Excel",
-                data=buffer,
-                file_name=f"pedidos_jt_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
-                mime="application/vnd.ms-excel",
-                type="secondary"
-            )
+    # exportação
+    with st.container():
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            df_display.to_excel(writer, index=False, sheet_name='Pedidos')
 
-        # 5. TABELA INTERATIVA
-        cfg_visual = {
-            "ID_PEDIDO": st.column_config.NumberColumn("🆔 ID", format="%d", width="small"),
-            "COD CLIENTE": st.column_config.NumberColumn("🔢 Cód.", format="%d", width="small"),
-            "NOME CLIENTE": st.column_config.TextColumn("👤 Cliente", width="medium"),
-            "CIDADE": st.column_config.TextColumn("📍 Cidade", width="small"),
-            "ROTA": st.column_config.TextColumn("🚚 Rota", width="small"),
-            "PEDIDO": st.column_config.TextColumn("📝 Itens", width="medium"),
-            "DIA DA ENTREGA": st.column_config.TextColumn("📅 Entrega"),
-            "STATUS": st.column_config.TextColumn("📊 Status", width="medium"),
-            "PAGAMENTO": st.column_config.TextColumn("💳 Pagamento", width="medium"),
-            "NR PEDIDO": st.column_config.TextColumn("🔢 NR", width="small"),
-            "OBSERVAÇÃO": st.column_config.TextColumn("📝 Obs", width="medium"),
-            "CARIMBO DE DATA/HORA": None, "VERSÃO": None, "VERSAO": None
-        }
-
-        colunas_travadas = list(cfg_visual.keys())
-
-        # Coluna de seleção
-        df_display.insert(0, "VER", False)
-        cfg_visual["VER"] = st.column_config.CheckboxColumn(
-            "🔍 Ver" if perfil == "Admin" else "🔍 Ver",
-            width="small"
+        st.download_button(
+            label="📥 Baixar Tabela em Excel",
+            data=buffer,
+            file_name=f"pedidos_jt_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
+            mime="application/vnd.ms-excel",
+            type="secondary"
         )
 
-        df_styled = df_display.style.map(highlight_status, subset=["STATUS"])
+    cfg_visual = {
+        "ID_PEDIDO": st.column_config.NumberColumn("🆔 ID", format="%d", width="small"),
+        "COD CLIENTE": st.column_config.NumberColumn("🔢 Cód.", format="%d", width="small"),
+        "NOME CLIENTE": st.column_config.TextColumn("👤 Cliente", width="medium"),
+        "CIDADE": st.column_config.TextColumn("📍 Cidade", width="small"),
+        "ROTA": st.column_config.TextColumn("🚚 Rota", width="small"),
+        "PEDIDO": st.column_config.TextColumn("📝 Itens", width="medium"),
+        "DIA DA ENTREGA": st.column_config.TextColumn("📅 Entrega"),
+        "STATUS": st.column_config.TextColumn("📊 Status", width="medium"),
+        "PAGAMENTO": st.column_config.TextColumn("💳 Pagamento", width="medium"),
+        "NR PEDIDO": st.column_config.TextColumn("🔢 NR", width="small"),
+        "OBSERVAÇÃO": st.column_config.TextColumn("📝 Obs", width="medium"),
+        "CARIMBO DE DATA/HORA": None,
+        "VERSÃO": None,
+        "VERSAO": None
+    }
+
+    mobile = _is_mobile()
+
+    if not mobile:
+        # =========================
+        # DESKTOP = TABELA
+        # =========================
+        df_tab = df_display.copy()
+        df_tab.insert(0, "VER", False)
+
+        cfg_visual_tab = dict(cfg_visual)
+        cfg_visual_tab["VER"] = st.column_config.CheckboxColumn("🔍 Ver", width="small")
+
+        df_styled = df_tab.style.map(highlight_status, subset=["STATUS"])
 
         if perfil == "Admin":
             st.info("👆 Clique na caixa da primeira coluna para **Ver Detalhes**.")
@@ -218,31 +224,53 @@ def tabela_gestao_interativa(perfil, nome_user):
 
         df_editado = st.data_editor(
             df_styled,
-            column_config=cfg_visual,
+            column_config=cfg_visual_tab,
             use_container_width=True,
             height=600,
             hide_index=True,
-            disabled=colunas_travadas,
+            disabled=[c for c in cfg_visual_tab.keys() if c != "VER"],  # ✅ só VER clicável
             key=f"editor_geral_{st.session_state.gerenciar_editor_key}"
         )
 
-        # Lógica de Seleção (Força Rerun GLOBAL para abrir Modal)
         linhas_selecionadas = df_editado[df_editado["VER"] == True]
         if not linhas_selecionadas.empty:
             st.session_state.pedido_para_visualizar = linhas_selecionadas.iloc[0].to_dict()
             st.session_state.gerenciar_editor_key += 1
             st.rerun()
 
-        # Paginação dentro do fragmento
-        if total_paginas > 1:
-            st.markdown("---")
-            nova_pagina = components.render_pagination(st.session_state["pag_atual_gerenciar"], total_paginas)
-            if nova_pagina != st.session_state["pag_atual_gerenciar"]:
-                st.session_state["pag_atual_gerenciar"] = nova_pagina
+    else:
+        # =========================
+        # MOBILE = LISTA
+        # =========================
+        clicado = components.render_df_as_list_cards(
+            df_display,
+            id_col="ID_PEDIDO",
+            title_col="NOME CLIENTE",
+            subtitle_cols=["DIA DA ENTREGA", "STATUS"],
+            fields=[
+                ("Cidade", "CIDADE"),
+                ("Rota", "ROTA"),
+                ("Pagamento", "PAGAMENTO"),
+                ("NR", "NR PEDIDO"),
+            ],
+            action_label="Ver",
+            action_key_prefix="ped_card",
+            return_on_click=True
+        )
+
+        if clicado is not None:
+            linha = df_display[df_display["ID_PEDIDO"].astype(str) == str(clicado)]
+            if not linha.empty:
+                st.session_state.pedido_para_visualizar = linha.iloc[0].to_dict()
                 st.rerun()
 
-    else:
-        st.info("Nenhum pedido encontrado com os filtros selecionados.")
+    # paginação
+    if total_paginas > 1:
+        st.markdown("---")
+        nova_pagina = components.render_pagination(st.session_state["pag_atual_gerenciar"], total_paginas)
+        if nova_pagina != st.session_state["pag_atual_gerenciar"]:
+            st.session_state["pag_atual_gerenciar"] = nova_pagina
+            st.rerun()
 
 
 def render_page(hash_dados, perfil, nome_user):
@@ -256,10 +284,8 @@ def render_page(hash_dados, perfil, nome_user):
     titulo = "👁️ Visão Geral" if perfil == "Admin" else "🚚 Painel de Operações"
     st.subheader(titulo)
 
-    # CHAMADA DO FRAGMENTO ISOLADO
     tabela_gestao_interativa(perfil, nome_user)
 
-    # MODAL (Fora do fragmento para garantir contexto correto de sobreposição)
     if st.session_state.pedido_para_visualizar is not None:
         pedido_visto = st.session_state.pedido_para_visualizar
         st.session_state.pedido_para_visualizar = None
