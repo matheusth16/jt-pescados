@@ -26,7 +26,6 @@ st.set_page_config(
 def inicializar_sessao():
     """Garante que as variáveis de estado existam, sobrevivendo a recarregamentos."""
     if "navegacao_principal" not in st.session_state:
-        # valor inicial do menu (vai ser sobrescrito depois do login)
         st.session_state.navegacao_principal = None
 
     if "logado" not in st.session_state:
@@ -91,7 +90,7 @@ def tela_login():
 if not st.session_state.logado:
     tela_login()
 else:
-    # 3.1. Dados Globais e Sidebar
+    # 3.1. Dados Globais
     try:
         hash_dados = db.obter_versao_planilha()
     except Exception:
@@ -103,13 +102,37 @@ else:
     # Injeta o CSS global baseado no perfil
     styles.aplicar_estilos(perfil=PERFIL)
 
+    # ✅ 3.2. MENU NA SIDEBAR (hambúrguer no mobile)
     with st.sidebar:
         st.image("assets/imagem da empresa.jpg", use_container_width=True)
         st.markdown("<br>", unsafe_allow_html=True)
         components.render_user_card(NOME_USER, PERFIL)
         st.markdown("---")
 
-        st.markdown("<br><br>", unsafe_allow_html=True)
+        # Opções por perfil
+        if PERFIL == "Admin":
+            opcoes_menu = ["📈 Dashboard", "📝 Novo Pedido", "👁️ Gerenciar", "🐟 Recebimento de Salmão", "➕ Clientes"]
+        else:
+            opcoes_menu = ["🚚 Operações", "🐟 Recebimento de Salmão", "📈 Indicadores"]
+
+        # valor inicial
+        if st.session_state.navegacao_principal is None:
+            st.session_state.navegacao_principal = opcoes_menu[0]
+
+        escolha_nav_sidebar = st.radio(
+            "Menu",
+            opcoes_menu,
+            index=opcoes_menu.index(st.session_state.navegacao_principal),
+            key="nav_radio_sidebar"
+        )
+
+        # ✅ auto-fechar / navegar melhor no mobile:
+        # se mudou, salva e dá rerun (tende a recolher sidebar em mobile)
+        if escolha_nav_sidebar != st.session_state.navegacao_principal:
+            st.session_state.navegacao_principal = escolha_nav_sidebar
+            st.rerun()
+
+        st.markdown("---")
         if st.button("🚪 Sair", use_container_width=True):
             st.session_state.logado = False
             st.session_state.filtro_status_dash = None
@@ -117,8 +140,9 @@ else:
             st.session_state.navegacao_principal = None
             st.rerun()
 
-    # 3.2. Header e Métricas Topo
-    st.title("📦 Portal de Pedidos Digital")
+    # 3.3. HEADER COMPACTO + MÉTRICAS (Topo)
+    # Troca o st.title (muito alto no mobile) por um header menor e limpo.
+    st.markdown("### 📦 Portal de Pedidos")
 
     try:
         qtd_cli, qtd_ped = db.get_metricas(_hash_versao=hash_dados)
@@ -133,7 +157,7 @@ else:
     with m3:
         components.render_metric_card("👤 Usuário Logado", NOME_USER, "#238636")
 
-    # ✅ 3.3. ROTEAMENTO INTERNO (sem aparecer no menu)
+    # ✅ 3.4. ROTEAMENTO INTERNO (sem aparecer no menu)
     if st.session_state.nav_page == "gerenciar_edicao":
 
         # Segurança: Admin nunca entra
@@ -152,51 +176,10 @@ else:
             st.session_state.navegacao_principal = "🚚 Operações"
             st.rerun()
 
-        # Renderiza a página de edição e encerra este fluxo de navegação
         page_gerenciar_edicao.render_page(hash_dados, PERFIL, NOME_USER)
         st.stop()
 
-    # 3.4. MENU NO TOPO (BOTÕES)
-    if PERFIL == "Admin":
-        opcoes = [
-            ("📈 Dashboard", "📈 Dashboard"),
-            ("📝 Novo Pedido", "📝 Novo Pedido"),
-            ("👁️ Gerenciar", "👁️ Gerenciar"),
-            ("🐟 Salmão", "🐟 Recebimento de Salmão"),
-            ("➕ Clientes", "➕ Clientes"),
-        ]
-    else:
-        opcoes = [
-            ("🚚 Operações", "🚚 Operações"),
-            ("🐟 Salmão", "🐟 Recebimento de Salmão"),
-            ("📈 Indicadores", "📈 Indicadores"),
-        ]
-
-    # valor inicial
-    if st.session_state.navegacao_principal is None:
-        st.session_state.navegacao_principal = opcoes[0][1]
-
-    # wrapper para CSS do menu topo (top-nav)
-    st.markdown('<div class="top-nav">', unsafe_allow_html=True)
-
-    cols = st.columns(len(opcoes))
-    for i, (label_btn, valor_state) in enumerate(opcoes):
-        with cols[i]:
-            ativo = (st.session_state.navegacao_principal == valor_state)
-
-            if ativo:
-                st.markdown('<div class="nav-active">', unsafe_allow_html=True)
-
-            if st.button(label_btn, use_container_width=True, key=f"topnav_{i}"):
-                st.session_state.navegacao_principal = valor_state
-                st.rerun()
-
-            if ativo:
-                st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    # ✅ ESSENCIAL: escolha_nav sempre definido
+    # ✅ ESSENCIAL: escolha_nav sempre definido (vem do menu da sidebar)
     escolha_nav = st.session_state.navegacao_principal
 
     st.markdown("---")

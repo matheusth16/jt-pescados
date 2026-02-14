@@ -54,6 +54,35 @@ def aplicar_estilos(perfil="Admin"):
         }}
 
         /* ============================================================
+           ✅ HEADER COMPACTO (MOBILE-FIRST) — FIX PARA NÃO CORTAR
+           ============================================================ */
+
+        /* Espaço suficiente para não ficar por baixo do topo fixo do Streamlit */
+        .block-container {{
+            padding-top: calc(3.2rem + env(safe-area-inset-top)) !important;
+        }}
+
+        /* Mobile: compacto, mas sem cortar */
+        @media (max-width: 768px) {{
+            .block-container {{
+                padding-top: calc(2.6rem + env(safe-area-inset-top)) !important;
+            }}
+
+            /* Evita títulos empurrarem muito o conteúdo */
+            h1, h2, h3 {{
+                margin-top: 0.2rem !important;
+                margin-bottom: 0.35rem !important;
+            }}
+
+            /* Textos do markdown com menos respiro */
+            div[data-testid="stMarkdownContainer"] p,
+            .stMarkdown p {{
+                margin-top: 0.2rem !important;
+                margin-bottom: 0.4rem !important;
+            }}
+        }}
+
+        /* ============================================================
            TÍTULOS
            ============================================================ */
         h1 {{
@@ -225,7 +254,7 @@ def aplicar_estilos(perfil="Admin"):
         }}
 
         /* ============================================================
-           BOTÕES E LINKS (fonte do botão!)
+           BOTÕES E LINKS (GLOBAL)
            ============================================================ */
         .stButton>button, .stLinkButton>a {{
             width: 100%;
@@ -247,6 +276,29 @@ def aplicar_estilos(perfil="Admin"):
         }}
 
         /* ============================================================
+           ✅ SIDEBAR COMPACTA (menu hambúrguer no mobile)
+           - reduz altura/fonte dos botões e deixa o radio mais "menu"
+           ============================================================ */
+
+        /* Botões da sidebar (ex.: Sair) menos altos */
+        [data-testid="stSidebar"] .stButton>button {{
+            height: 2.4em !important;
+            font-size: 16px !important;
+            border-radius: 10px !important;
+            letter-spacing: 0.2px !important;
+        }}
+
+        /* Radio da sidebar: menos "gordo" */
+        [data-testid="stSidebar"] div[role="radiogroup"] label {{
+            padding: 0.20rem 0.25rem !important;
+        }}
+
+        /* Texto do radio na sidebar */
+        [data-testid="stSidebar"] div[role="radiogroup"] * {{
+            font-size: 16px !important;
+        }}
+
+        /* ============================================================
            FORMULÁRIOS
            ============================================================ */
         [data-testid="stForm"] {{
@@ -257,7 +309,7 @@ def aplicar_estilos(perfil="Admin"):
         }}
 
         /* ============================================================
-           TABELAS / DATAFRAME (fonte costuma ficar pequena)
+           TABELAS / DATAFRAME
            ============================================================ */
         [data-testid="stDataFrame"] {{
             border: 1px solid #30363d;
@@ -267,30 +319,6 @@ def aplicar_estilos(perfil="Admin"):
         [data-testid="stDataFrame"] * {{
             font-size: {input_font_px}px !important;
         }}
-    </style>
-    """, unsafe_allow_html=True)
-
-    # --- 3) CSS DO TOP NAV (SEM f-string para não dar NameError) ---
-    st.markdown("""
-    <style>
-        /* ============================================================
-           TOP NAV (botões do menu no topo)
-           ============================================================ */
-
-        .top-nav .stButton>button {
-            height: 2.6em !important;
-            border-radius: 10px !important;
-            text-transform: none !important;
-            letter-spacing: 0px !important;
-            font-weight: 700 !important;
-            font-size: 16px !important;
-            padding: 0.35rem 0.6rem !important;
-        }
-
-        .top-nav .nav-active .stButton>button {
-            outline: 2px solid rgba(255,255,255,0.25) !important;
-            filter: brightness(1.15);
-        }
     </style>
     """, unsafe_allow_html=True)
 
