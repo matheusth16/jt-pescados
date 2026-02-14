@@ -13,17 +13,50 @@ def render_login_header():
     st.markdown("<p style='text-align: center; color: #888;'>Acesso Restrito</p>", unsafe_allow_html=True)
 
 
-def render_user_card(nome, perfil):
-    """Renderiza o cartão do utilizador na sidebar."""
-    st.markdown(f"""
-<div class="user-card">
-    <p class="user-name">👤 {nome}</p>
-    <p class="user-role">{perfil}</p>
+def render_user_card(nome, perfil, *, compact: bool = True):
+    """Renderiza o cartão do usuário na sidebar.
+
+    Opção 2: exibe título fixo "Usuário" e o perfil em formato amigável.
+    compact=True deixa o card mais baixo (ideal para sidebar).
+    """
+    perfil_map = {
+        "ADMIN": "Administrador",
+        "Admin": "Administrador",
+        "OPERACAO": "Operação",
+        "Operacao": "Operação",
+        "OPERAÇÃO": "Operação",
+        "OPERADOR": "Operador",
+        "Operador": "Operador",
+        "USER": "Usuário",
+        "User": "Usuário",
+    }
+    perfil_label = perfil_map.get(str(perfil).strip(), str(perfil).strip())
+
+    if compact:
+        st.markdown(
+            f"""
+<div class="user-card" style="padding:10px 12px; border-radius:12px;">
+    <p class="user-name" style="margin:0; font-size:0.95rem; line-height:1.1;">👤 Usuário</p>
+    <p class="user-role" style="margin:4px 0 0 0; font-size:0.82rem; line-height:1.1; opacity:0.9;">{perfil_label}</p>
 </div>
-""", unsafe_allow_html=True)
+""",
+            unsafe_allow_html=True
+        )
+    else:
+        st.markdown(
+            f"""
+<div class="user-card">
+    <p class="user-name">👤 Usuário</p>
+    <p class="user-role">{perfil_label}</p>
+</div>
+""",
+            unsafe_allow_html=True
+        )
 
 
-def render_metric_card(label, value, color_hex):
+
+
+def render_metric_card(label, value, color_hex, compact: bool = True, **kwargs):
     """
     Renderiza os cartões de métricas do topo.
     """

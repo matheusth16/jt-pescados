@@ -1,3 +1,4 @@
+import streamlit as st
 from datetime import datetime
 from core.config import DIAS_ALERTA_AMARELO, DIAS_ALERTA_VERMELHO
 
@@ -39,3 +40,12 @@ def calcular_status_validade(data_str):
     except ValueError:
         # Se a data estiver em formato errado ou inválido, retorna OK para não quebrar a tela
         return "OK"
+
+def render_details(titulo: str, erro: Exception) -> None:
+    """Mostra um erro amigável e expande detalhes técnicos (stacktrace).
+
+    Útil para tratamento de exceções em telas Streamlit sem quebrar o fluxo.
+    """
+    st.error(titulo)
+    # Mostra traceback de forma expansível no Streamlit
+    st.exception(erro)

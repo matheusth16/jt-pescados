@@ -106,12 +106,12 @@ else:
     with st.sidebar:
         st.image("assets/imagem da empresa.jpg", use_container_width=True)
         st.markdown("<br>", unsafe_allow_html=True)
-        components.render_user_card(NOME_USER, PERFIL)
+        components.render_user_card(NOME_USER, PERFIL, compact=True)
         st.markdown("---")
 
         # Opções por perfil
         if PERFIL == "Admin":
-            opcoes_menu = ["📈 Dashboard", "📝 Novo Pedido", "👁️ Gerenciar", "🐟 Recebimento de Salmão", "➕ Clientes"]
+            opcoes_menu = ["📝 Novo Pedido", "📈 Dashboard", "👁️ Gerenciar", "🐟 Recebimento de Salmão", "➕ Clientes"]
         else:
             opcoes_menu = ["🚚 Operações", "🐟 Recebimento de Salmão", "📈 Indicadores"]
 
@@ -119,11 +119,14 @@ else:
         if st.session_state.navegacao_principal is None:
             st.session_state.navegacao_principal = opcoes_menu[0]
 
+        st.markdown("**Menu**")
+
         escolha_nav_sidebar = st.radio(
             "Menu",
             opcoes_menu,
             index=opcoes_menu.index(st.session_state.navegacao_principal),
-            key="nav_radio_sidebar"
+            key="nav_radio_sidebar",
+            label_visibility="collapsed"
         )
 
         # ✅ auto-fechar / navegar melhor no mobile:
@@ -131,6 +134,17 @@ else:
         if escolha_nav_sidebar != st.session_state.navegacao_principal:
             st.session_state.navegacao_principal = escolha_nav_sidebar
             st.rerun()
+
+        st.markdown("---")
+        # --- Resumo (métricas) no final do menu ---
+        try:
+            qtd_cli, qtd_ped = db.get_metricas(_hash_versao=hash_dados)
+        except Exception:
+            qtd_cli, qtd_ped = "-", "-"
+
+        components.render_metric_card("👥 Total Clientes", qtd_cli, "#58a6ff", compact=True)
+        components.render_metric_card("📦 Pedidos Totais", qtd_ped, "#f1e05a", compact=True)
+        components.render_metric_card("👤 Usuário Logado", NOME_USER, "#238636", compact=True)
 
         st.markdown("---")
         if st.button("🚪 Sair", use_container_width=True):
@@ -144,18 +158,6 @@ else:
     # Troca o st.title (muito alto no mobile) por um header menor e limpo.
     st.markdown("### 📦 Portal de Pedidos")
 
-    try:
-        qtd_cli, qtd_ped = db.get_metricas(_hash_versao=hash_dados)
-    except Exception:
-        qtd_cli, qtd_ped = "-", "-"
-
-    m1, m2, m3 = st.columns(3)
-    with m1:
-        components.render_metric_card("👥 Total Clientes", qtd_cli, "#58a6ff")
-    with m2:
-        components.render_metric_card("📦 Pedidos Totais", qtd_ped, "#f1e05a")
-    with m3:
-        components.render_metric_card("👤 Usuário Logado", NOME_USER, "#238636")
 
     # ✅ 3.4. ROTEAMENTO INTERNO (sem aparecer no menu)
     if st.session_state.nav_page == "gerenciar_edicao":

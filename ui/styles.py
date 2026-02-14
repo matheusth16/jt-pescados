@@ -140,33 +140,45 @@ def aplicar_estilos(perfil="Admin"):
         }}
 
         /* ============================================================
-           SIDEBAR: CARD DO USUÁRIO
+           SIDEBAR: CARD DO USUÁRIO (COMPACTO)
            ============================================================ */
         .user-card {{
             background-color: rgba(255, 255, 255, 0.05);
             border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            padding: 15px;
-            margin-bottom: 20px;
-            text-align: center;
+            border-radius: 12px;
+            padding: 10px 12px;
+            margin-bottom: 12px;
+            text-align: left;
         }}
         .user-name {{
             color: #e6e6e6 !important;
-            font-weight: bold;
-            font-size: 1.1em;
+            font-weight: 800;
+            font-size: 0.95em;
             margin: 0;
+            line-height: 1.1;
         }}
         .user-role {{
             color: {c_prin} !important;
-            font-size: 0.9em;
-            margin: 0;
+            font-size: 0.82em;
+            margin: 4px 0 0 0;
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 0.6px;
+            line-height: 1.1;
+        }}
+
+        [data-testid="stSidebar"] .user-card {{
+            margin-top: 2px;
+        }}
+
+        /* Ajustes extra apenas dentro da Sidebar */
+        [data-testid="stSidebar"] .user-card {{
+            margin-top: 2px;
         }}
 
         /* ============================================================
            METRIC CARDS (TOPO)
            ============================================================ */
+
         .metric-container {{
             background-color: #161b22;
             border: 1px solid #30363d;
@@ -186,6 +198,24 @@ def aplicar_estilos(perfil="Admin"):
             font-weight: bold;
             margin: 0;
         }}
+
+        /* ============================================================
+           SIDEBAR: MÉTRICAS COMPACTAS (quando usadas no menu)
+           ============================================================ */
+        [data-testid="stSidebar"] .metric-container {{
+            padding: 10px 12px !important;
+            border-radius: 12px !important;
+            margin: 8px 0 !important;
+        }}
+        [data-testid="stSidebar"] .metric-label {{
+            font-size: 0.82em !important;
+            line-height: 1.1 !important;
+        }}
+        [data-testid="stSidebar"] .metric-value {{
+            font-size: 1.05em !important;
+            line-height: 1.1 !important;
+        }}
+
 
         /* ============================================================
            PREVIEW CARD (NOVO PEDIDO)
