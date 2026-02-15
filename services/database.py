@@ -61,7 +61,7 @@ def autenticar_usuario(login_digitado, senha_digitada):
     return None
 
 # --- LEITURAS ---
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def listar_clientes(_hash_versao=None):
     client = get_db_client()
     try:
@@ -74,19 +74,26 @@ def listar_clientes(_hash_versao=None):
         pass
     return []
 
-@st.cache_data(ttl=300)
+# Limite de pedidos para montar listas de filtro (evita trazer tabela inteira)
+_LIMITE_PEDIDOS_FILTROS = 5000
+
+@st.cache_data(ttl=300, show_spinner=False)
 def listar_dados_filtros():
     """
     Retorna listas únicas de Cidades e Rotas dos pedidos para preencher filtros.
-    Cache longo (5 min) pois esses dados variam pouco.
+    Usa apenas os últimos N pedidos para ser rápido mesmo com muitos registros.
     """
     client = get_db_client()
     try:
-        # Busca apenas colunas de filtro para ser extremamente leve
-        response = client.table("pedidos").select("CIDADE, ROTA").execute()
+        response = (
+            client.table("pedidos")
+            .select("CIDADE, ROTA")
+            .order("ID_PEDIDO", desc=True)
+            .limit(_LIMITE_PEDIDOS_FILTROS)
+            .execute()
+        )
         if response.data:
             df = pd.DataFrame(response.data)
-            # Extrai únicos e remove vazios
             cidades = sorted([str(x) for x in df["CIDADE"].unique() if x and str(x).strip() != ''])
             rotas = sorted([str(x) for x in df["ROTA"].unique() if x and str(x).strip() != ''])
             return cidades, rotas
@@ -94,21 +101,28 @@ def listar_dados_filtros():
         pass
     return [], []
 
-@st.cache_data(ttl=300)
-def buscar_pedidos_visualizacao():
+# Limite padrão para dashboard (evita carregar dezenas de milhares de linhas)
+_LIMITE_DASHBOARD = 5000
+
+@st.cache_data(ttl=300, show_spinner=False)
+def buscar_pedidos_visualizacao(_hash_versao=None, _limite=None):
     """
-    Busca apenas colunas essenciais para indicadores visuais (Dashboard/KPIs).
-    OTIMIZAÇÃO: Removeu select("*") para reduzir tráfego de dados.
+    Busca colunas essenciais para indicadores (Dashboard/KPIs).
+    Com limite para manter a resposta rápida.
     """
+    limite = _limite if _limite is not None else _LIMITE_DASHBOARD
     client = get_db_client()
     try:
-        # Seleciona apenas o necessário para gráficos e contagens
         cols = 'ID_PEDIDO, STATUS, PAGAMENTO, "DIA DA ENTREGA", "NOME CLIENTE"'
-        
-        response = client.table("pedidos").select(cols).order("ID_PEDIDO", desc=True).execute()
+        response = (
+            client.table("pedidos")
+            .select(cols)
+            .order("ID_PEDIDO", desc=True)
+            .limit(limite)
+            .execute()
+        )
         if response.data:
-            df = pd.DataFrame(response.data)
-            return df
+            return pd.DataFrame(response.data)
     except Exception:
         pass
     return pd.DataFrame()
@@ -328,14 +342,14 @@ def criar_novo_cliente(nome, cidade, documento=""):
     except Exception as e:
         st.error(f"Erro ao criar cliente: {e}")
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def get_metricas(_hash_versao=None):
     client = get_db_client()
     try:
         count_cli = client.table("clientes").select("Código", count="exact", head=True).execute().count
         count_ped = client.table("pedidos").select("ID_PEDIDO", count="exact", head=True).execute().count
         return count_cli, count_ped
-    except:
+    except Exception:
         return 0, 0
 
 # --- ESTOQUE (SALMÃO) ---
@@ -480,13 +494,13 @@ def get_consumo_tag(tag_pai_id):
     except Exception:
         return [], 0.0
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, show_spinner=False)
 def get_resumo_global_salmao():
     client = get_db_client()
     try:
         response = client.table("estoque_salmao").select("Status").execute()
         dados = response.data
-        resp_backup = client.table("estoque_salmao_backup").select("*", count="exact", head=True).execute()
+        resp_backup = client.table("estoque_salmao_backup").select("Tag", count="exact", head=True).execute()
         qtd_historico = resp_backup.count if resp_backup.count is not None else 0
 
         if not dados: return 0, 0, qtd_historico, 0, 0, 0
