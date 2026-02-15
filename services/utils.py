@@ -49,3 +49,24 @@ def render_details(titulo: str, erro: Exception) -> None:
     st.error(titulo)
     # Mostra traceback de forma expansível no Streamlit
     st.exception(erro)
+    
+def hash_senha(senha: str) -> str:
+    """Gera hash da senha para armazenamento seguro (Argon2)."""
+    from argon2 import PasswordHasher
+    ph = PasswordHasher()
+    return ph.hash(senha.strip())
+
+def verificar_senha(senha_digitada: str, hash_armazenado: str) -> bool:
+    """Verifica se a senha digitada confere com o hash."""
+    from argon2 import PasswordHasher
+    from argon2.exceptions import VerifyMismatchError
+    if not hash_armazenado or not senha_digitada:
+        return False
+    try:
+        ph = PasswordHasher()
+        ph.verify(hash_armazenado, senha_digitada.strip())
+        return True
+    except VerifyMismatchError:
+        return False
+    except Exception:
+        return False

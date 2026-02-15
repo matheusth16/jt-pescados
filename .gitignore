@@ -1,5 +1,7 @@
 credentials.json
 __pycache__/
 *.pyc
-.devcontainer
 .streamlit
+.env
+.env.*
+!.env.example

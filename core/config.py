@@ -1,9 +1,21 @@
+import os
 import pytz
 
-# --- CONSTANTES GERAIS ---
-# Substitua abaixo pelas suas credenciais do painel do Supabase (Project Settings > API)
-SUPABASE_URL = "https://dnwnlyworysxbkyarwkd.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRud25seXdvcnlzeGJreWFyd2tkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2OTU1ODY5NywiZXhwIjoyMDg1MTM0Njk3fQ.xHaTfQ8sSp7EZOTmwyDDzZyuOo0j7q-LaX92TQ6UPj4"
+# Carrega .env localmente (não commita este arquivo)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv opcional
+
+# --- CREDENCIAIS (via variáveis de ambiente) ---
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise RuntimeError(
+        "Configure SUPABASE_URL e SUPABASE_KEY em variáveis de ambiente ou no arquivo .env"
+    )
 
 FUSO_BR = pytz.timezone('America/Sao_Paulo')
 

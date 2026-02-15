@@ -36,17 +36,25 @@ def obter_versao_planilha():
 
 # --- AUTENTICAÇÃO ---
 def autenticar_usuario(login_digitado, senha_digitada):
+    from services.utils import verificar_senha
+    
     client = get_db_client()
     try:
-        # Busca usuário exato
+        # Busca usuário apenas pelo LOGIN
         response = client.table("usuarios")\
-            .select("*")\
+            .select("LOGIN, SENHA, NOME, PERFIL")\
             .eq("LOGIN", str(login_digitado).strip())\
-            .eq("SENHA", str(senha_digitada).strip())\
+            .limit(1)\
             .execute()
         
-        if response.data:
-            user = response.data[0]
+        if not response.data:
+            return None
+            
+        user = response.data[0]
+        hash_armazenado = user.get("SENHA") or ""
+        
+        # Verifica se a senha confere com o hash
+        if verificar_senha(senha_digitada, hash_armazenado):
             return {"nome": user.get('NOME', 'Usuário'), "perfil": user.get('PERFIL', 'Operador')}
     except Exception as e:
         st.error(f"Erro ao autenticar: {e}")
