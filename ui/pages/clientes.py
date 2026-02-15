@@ -56,31 +56,29 @@ def render_page(hash_dados, perfil):
     st.markdown("---")
     st.markdown("### 🔍 Clientes já Cadastrados")
 
-    # --- LÓGICA DE PAGINAÇÃO ---
+    lista_clientes_fragment()
+
+
+@st.fragment
+def lista_clientes_fragment():
+    """
+    Lista paginada de clientes. Interações (paginação, Voltar) reexecutam só este bloco.
+    """
     if "pag_atual_clientes" not in st.session_state:
         st.session_state["pag_atual_clientes"] = 1
 
     TAMANHO_PAGINA = 20
-
-    # Busca apenas os 20 clientes da página atual e o total
-    # OTIMIZAÇÃO: O banco retorna apenas as colunas: Código, Cliente, Nome Cidade, CPF/CNPJ, ROTA
     df_clientes_view, total_registros = db.buscar_clientes_paginado(
         st.session_state["pag_atual_clientes"],
         TAMANHO_PAGINA
     )
-
     total_paginas = math.ceil(total_registros / TAMANHO_PAGINA) if TAMANHO_PAGINA > 0 else 1
 
     if not df_clientes_view.empty:
         st.caption(f"Total de registros na base: **{total_registros}**")
-
         mobile = _is_mobile()
 
-        # ============================================================
-        # ✅ RENDERIZA APENAS 1 MODO (robusto)
-        # ============================================================
         if not mobile:
-            # DESKTOP = TABELA
             st.dataframe(
                 df_clientes_view,
                 use_container_width=True,
@@ -94,7 +92,6 @@ def render_page(hash_dados, perfil):
                 }
             )
         else:
-            # MOBILE = LISTA (cards)
             components.render_df_as_list_cards(
                 df_clientes_view,
                 id_col="Código",
@@ -109,15 +106,12 @@ def render_page(hash_dados, perfil):
                 action_key_prefix="cli_card"
             )
 
-        # --- CONTROLES DE PAGINAÇÃO ---
-        nova_pagina = components.render_pagination(st.session_state["pag_atual_clientes"], total_paginas)
-        if nova_pagina != st.session_state["pag_atual_clientes"]:
-            st.session_state["pag_atual_clientes"] = nova_pagina
-            st.rerun()
-
+        if total_paginas > 1:
+            st.markdown("---")
+            nova_pagina = components.render_pagination(st.session_state["pag_atual_clientes"], total_paginas)
+            if nova_pagina != st.session_state["pag_atual_clientes"]:
+                st.session_state["pag_atual_clientes"] = nova_pagina
     else:
         st.info("Nenhum cliente encontrado nesta página.")
-        if total_paginas > 0:
-            if st.button("Voltar ao Início"):
-                st.session_state["pag_atual_clientes"] = 1
-                st.rerun()
+        if total_paginas > 0 and st.button("Voltar ao Início", key="cli_voltar_inicio"):
+            st.session_state["pag_atual_clientes"] = 1

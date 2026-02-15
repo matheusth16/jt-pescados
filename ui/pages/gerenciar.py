@@ -264,13 +264,12 @@ def tabela_gestao_interativa(perfil, nome_user):
                 st.session_state.pedido_para_visualizar = linha.iloc[0].to_dict()
                 st.rerun()
 
-    # paginação
+    # paginação (sem st.rerun: o fragment reexecuta sozinho ao clicar no botão)
     if total_paginas > 1:
         st.markdown("---")
         nova_pagina = components.render_pagination(st.session_state["pag_atual_gerenciar"], total_paginas)
         if nova_pagina != st.session_state["pag_atual_gerenciar"]:
             st.session_state["pag_atual_gerenciar"] = nova_pagina
-            st.rerun()
 
 
 def render_page(hash_dados, perfil, nome_user):
