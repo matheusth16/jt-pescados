@@ -8,16 +8,24 @@ try:
 except ImportError:
     pass  # python-dotenv opcional
 
-# --- CREDENCIAIS (via variáveis de ambiente) ---
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
+try:
+    import streamlit as st
+    SUPABASE_URL = SUPABASE_URL or st.secrets.get("SUPABASE_URL")
+    SUPABASE_KEY = SUPABASE_KEY or st.secrets.get("SUPABASE_KEY")
+except Exception:
+    pass
+
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError(
-        "Configure SUPABASE_URL e SUPABASE_KEY em variáveis de ambiente ou no arquivo .env"
+        "Faltam credenciais do Supabase. Configure SUPABASE_URL e SUPABASE_KEY "
+        "em variáveis de ambiente, no arquivo .env (local) ou em Secrets do Streamlit Cloud."
     )
 
-FUSO_BR = pytz.timezone('America/Sao_Paulo')
+FUSO_BR = pytz.timezone("America/Sao_Paulo")
+
 
 # --- REGRAS DE NEGÓCIO (VALIDADE) ---
 DIAS_ALERTA_AMARELO = 7  
