@@ -9,7 +9,6 @@ from core.config import FUSO_BR
 from services.database.client import get_db_client, get_max_id
 from services.database.clientes import listar_clientes, get_metricas
 from services.utils import limpar_texto
-from core.schemas import PedidoSchema
 
 # Limites para performance
 _LIMITE_PEDIDOS_FILTROS = 5000
@@ -95,65 +94,27 @@ def obter_resumo_historico(nome_cliente, limite=5):
     except Exception:
         return []
 
-def criar_novo_pedido(dados_dict):
-    """
-    Valida os dados usando Pydantic e insere no banco de dados.
-    Retorna (True, None) se sucesso ou (False, erro) se falha.
-    """
-    client = get_db_client()
-    try:
-        # 1. Validação Pydantic
-        # O .model_dump() (Pydantic V2) ou .dict() (Pydantic V1) prepara os dados
-        pedido_validado = PedidoSchema(**dados_dict)
-        dados_para_inserir = pedido_validado.model_dump() # Use .dict() se for Pydantic v1
-        
-        # 2. Inserção no Banco
-        client.table("pedidos").insert(dados_para_inserir).execute()
-        
-        # 3. Log de criação (opcional, mas recomendado manter aqui)
-        data_log = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
-        client.table("logs").insert({
-            "DATA_HORA": data_log,
-            "ID_PEDIDO": dados_para_inserir["ID_PEDIDO"],
-            "USUARIO": "Sistema", # Ou passar via argumento
-            "CAMPO": "CRIAÇÃO",
-            "VALOR_ANTIGO": "-",
-            "VALOR_NOVO": f"Status: {dados_para_inserir['STATUS']}"
-        }).execute()
-
-        return True, None
-
-    except ValueError as e:
-        # Erro de validação do Pydantic
-        return False, f"Erro de Validação: {str(e)}"
-    except Exception as e:
-        # Erro do Supabase ou outro
-        return False, f"Erro no Banco: {str(e)}"
 
 def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_escolhido, observacao="", nr_pedido="", usuario_logado="Sistema"):
-    # Limpeza de cache (Mantido do original)
+    client = get_db_client()
     get_metricas.clear()
     listar_clientes.clear()
     buscar_pedidos_visualizacao.clear()
     listar_dados_filtros.clear()
 
-    # Preparação dos dados (Lógica mantida do original)
     nome_final = limpar_texto(nome)
     obs_final = limpar_texto(observacao)
     nr_final = limpar_texto(nr_pedido)
     desc_final = descricao.strip()
-    # Pydantic espera datetime ou string ISO, mas se o schema aceitar string BR:
-    data_entrega_str = data_entrega.strftime("%d/%m/%Y") 
+    data_entrega_str = data_entrega.strftime("%d/%m/%Y")
     data_log = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
 
     novo_id = get_max_id("pedidos", "ID_PEDIDO") + 1
 
-    # Lógica de buscar dados do cliente (Mantido)
     cod_cliente = None
     cidade_dest = "NÃO DEFINIDO"
     rota_dest = "RETIRADA CD"
-    
-    client = get_db_client() # Necessário para buscar cliente antes de criar o dict
+
     try:
         resp_cli = client.table("clientes").select('"Código", "Nome Cidade", ROTA').eq("Cliente", nome).execute()
         if resp_cli.data:
@@ -164,14 +125,13 @@ def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_esc
     except Exception:
         pass
 
-    # Monta o dicionário completo
     dados_pedido = {
         "ID_PEDIDO": novo_id,
         "CARIMBO DE DATA/HORA": data_log,
         "COD CLIENTE": cod_cliente,
         "NOME CLIENTE": nome_final,
         "PEDIDO": desc_final,
-        "DIA DA ENTREGA": data_entrega_str, # Atenção: Seu Schema deve aceitar str ou date
+        "DIA DA ENTREGA": data_entrega_str,
         "PAGAMENTO": pagamento_escolhido,
         "STATUS": status_escolhido,
         "NR PEDIDO": nr_final,
@@ -180,11 +140,18 @@ def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_esc
         "ROTA": rota_dest
     }
 
-    # CHAMA A NOVA FUNÇÃO COM VALIDAÇÃO
-    sucesso, erro = criar_novo_pedido(dados_pedido)
-
-    if not sucesso:
-        raise Exception(erro)
+    try:
+        client.table("pedidos").insert(dados_pedido).execute()
+        client.table("logs").insert({
+            "DATA_HORA": data_log,
+            "ID_PEDIDO": novo_id,
+            "USUARIO": str(usuario_logado),
+            "CAMPO": "CRIAÇÃO",
+            "VALOR_ANTIGO": "-",
+            "VALOR_NOVO": f"Status: {status_escolhido}"
+        }).execute()
+    except Exception as e:
+        raise Exception(f"Erro ao salvar no Supabase: {e}")
 
 
 def atualizar_pedidos_editaveis(df_editado, usuario_logado="Sistema"):
