@@ -1,31 +1,40 @@
 import os
 import pytz
 
-# Carrega .env localmente (não commita este arquivo)
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
     pass  # python-dotenv opcional
 
-# --- CREDENCIAIS (via variáveis de ambiente) ---
+# --- Tenta pegar credenciais também do Streamlit Secrets (Cloud) ---
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
+try:
+    import streamlit as st
+    # usa secrets como fallback se env vars não existirem
+    SUPABASE_URL = SUPABASE_URL or st.secrets.get("SUPABASE_URL", None)
+    SUPABASE_KEY = SUPABASE_KEY or st.secrets.get("SUPABASE_KEY", None)
+except Exception:
+    # streamlit pode não existir em alguns contextos (scripts, testes)
+    pass
+
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError(
-        "Configure SUPABASE_URL e SUPABASE_KEY em variáveis de ambiente ou no arquivo .env"
+        "Faltam credenciais do Supabase. Configure SUPABASE_URL e SUPABASE_KEY "
+        "em variáveis de ambiente, no arquivo .env (local) ou em Secrets do Streamlit Cloud."
     )
 
-FUSO_BR = pytz.timezone('America/Sao_Paulo')
+FUSO_BR = pytz.timezone("America/Sao_Paulo")
 
 # --- REGRAS DE NEGÓCIO (VALIDADE) ---
-DIAS_ALERTA_AMARELO = 7  
-DIAS_ALERTA_VERMELHO = 3 
+DIAS_ALERTA_AMARELO = 7
+DIAS_ALERTA_VERMELHO = 3
 
 # --- LISTAS DE OPÇÕES (Dropdowns) ---
 LISTA_STATUS = [
-    "GERADO", "PENDENTE", "NÃO GERADO", 
+    "GERADO", "PENDENTE", "NÃO GERADO",
     "CANCELADO", "ENTREGUE", "ORÇAMENTO", "RESERVADO"
 ]
 
@@ -35,33 +44,30 @@ LISTA_PAGAMENTO = [
 
 # --- DESIGN SYSTEM & CORES ---
 PALETA_CORES = {
-    # Cores usadas nos gráficos e status dos pedidos
     "STATUS": {
-        "PENDENTE": "#ffeb00",     # Amarelo
-        "GERADO": "#ff8500",       # Laranja
-        "NÃO GERADO": "#b10202",   # Vermelho Escuro
-        "CANCELADO": "#ffa0a0",    # Vermelho Claro
-        "ENTREGUE": "#11734b",     # Verde
-        "ORÇAMENTO": "#e8eaed",    # Cinza Claro
-        "RESERVADO": "#0a53a8"     # Azul
+        "PENDENTE": "#ffeb00",
+        "GERADO": "#ff8500",
+        "NÃO GERADO": "#b10202",
+        "CANCELADO": "#ffa0a0",
+        "ENTREGUE": "#11734b",
+        "ORÇAMENTO": "#e8eaed",
+        "RESERVADO": "#0a53a8"
     },
-    # Cores para alertas de validade
     "VALIDADE": {
-        "CRITICO": "#ff4d4d", # Vermelho vivo
-        "ALERTA": "#ffeb3b",  # Amarelo vivo
-        "OK": ""              # Sem cor de fundo
+        "CRITICO": "#ff4d4d",
+        "ALERTA": "#ffeb3b",
+        "OK": ""
     },
-    # Cores usadas no tema da interface (CSS)
     "TEMA": {
         "Admin": {
-            "principal": "#b10202",             # Vermelho JT
-            "destaque": "#d9534f",              # Vermelho mais claro (Toasts/Alertas)
-            "bg_card_sutil": "rgba(177, 2, 2, 0.1)" # Fundo translúcido avermelhado
+            "principal": "#b10202",
+            "destaque": "#d9534f",
+            "bg_card_sutil": "rgba(177, 2, 2, 0.1)"
         },
         "Operador": {
-            "principal": "#001f3f",             # Azul Marinho
-            "destaque": "#0074cc",              # Azul mais claro
-            "bg_card_sutil": "rgba(0, 31, 63, 0.2)" # Fundo translúcido azulado
+            "principal": "#001f3f",
+            "destaque": "#0074cc",
+            "bg_card_sutil": "rgba(0, 31, 63, 0.2)"
         }
     }
 }
