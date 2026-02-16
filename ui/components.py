@@ -54,8 +54,6 @@ def render_user_card(nome, perfil, *, compact: bool = True):
         )
 
 
-
-
 def render_metric_card(label, value, color_hex, compact: bool = True, **kwargs):
     """
     Renderiza os cartões de métricas do topo.
@@ -296,10 +294,20 @@ def render_df_as_list_cards(
 
         # Card container
         with st.container(border=True):
+            # ✅ Evita f-string aninhada com escapes (Python 3.11)
+            if subtitle:
+                subtitle_html = (
+                    f"<div style='color:#8b949e; font-size:0.95em;'>"
+                    f"{subtitle}"
+                    f"</div>"
+                )
+            else:
+                subtitle_html = ""
+
             st.markdown(
                 f"<div style='display:flex; flex-direction:column; gap:4px;'>"
                 f"<div style='font-size:1.05em; font-weight:800; color:#f0f6fc;'>{title}</div>"
-                f"{f'<div style=\"color:#8b949e; font-size:0.95em;\">{subtitle}</div>' if subtitle else ''}"
+                f"{subtitle_html}"
                 f"</div>",
                 unsafe_allow_html=True
             )
@@ -315,6 +323,7 @@ def render_df_as_list_cards(
                     clicked_id = item_id
 
     return clicked_id if return_on_click else None
+
 
 def is_mobile(breakpoint: int = 768) -> bool:
     """Retorna True se a largura da tela for menor que breakpoint."""
