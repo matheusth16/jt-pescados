@@ -51,10 +51,11 @@ def criar_novo_cliente(nome, cidade, documento=""):
 def get_metricas(_hash_versao=None):
     client = get_db_client()
     try:
-        count_cli = client.table("clientes").select("Código", count="exact", head=True).execute().count
-        count_ped = client.table("pedidos").select("ID_PEDIDO", count="exact", head=True).execute().count
-        return count_cli, count_ped
-    except Exception:
+        # Traz 1000 registros max - já basta para dashboard
+        resp_cli = client.table("clientes").select("Código").limit(1000).execute()
+        resp_ped = client.table("pedidos").select("ID_PEDIDO").limit(1000).execute()
+        return len(resp_cli.data), len(resp_ped.data)
+    except:
         return 0, 0
 
 

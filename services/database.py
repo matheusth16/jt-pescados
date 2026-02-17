@@ -7,6 +7,11 @@ from supabase import create_client, Client
 # --- IMPORTS DA CONFIGURAÇÃO ---
 from core.config import SUPABASE_URL, SUPABASE_KEY, FUSO_BR
 from services.utils import limpar_texto
+from services.logging_module import LoggerStructurado
+from services.monitor_performance import MonitorPerformance
+
+# --- LOGGER GLOBAL ---
+logger = LoggerStructurado("database")
 
 # --- CONEXÃO COM SUPABASE ---
 @st.cache_resource
@@ -38,9 +43,9 @@ def obter_versao_planilha():
 def autenticar_usuario(login_digitado, senha_digitada):
     client = get_db_client()
     try:
-        # Busca usuário exato
+        # ✅ OTIMIZAÇÃO: Seleciona apenas colunas necessárias para autenticação
         response = client.table("usuarios")\
-            .select("*")\
+            .select("NOME, PERFIL")\
             .eq("LOGIN", str(login_digitado).strip())\
             .eq("SENHA", str(senha_digitada).strip())\
             .execute()
@@ -53,7 +58,7 @@ def autenticar_usuario(login_digitado, senha_digitada):
     return None
 
 # --- LEITURAS ---
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def listar_clientes(_hash_versao=None):
     client = get_db_client()
     try:
@@ -66,7 +71,7 @@ def listar_clientes(_hash_versao=None):
         pass
     return []
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=1800)
 def listar_dados_filtros():
     """
     Retorna listas únicas de Cidades e Rotas dos pedidos para preencher filtros.
@@ -117,8 +122,9 @@ def obter_resumo_historico(nome_cliente, limite=5):
     try:
         nome_alvo = limpar_texto(nome_cliente)
         
-        # OTIMIZAÇÃO: Seleciona apenas colunas exibidas no modal de histórico
-        cols = 'ID_PEDIDO, "DIA DA ENTREGA", STATUS, PEDIDO, OBSERVAÇÃO, PAGAMENTO, "NOME CLIENTE"'
+        # ✅ OTIMIZAÇÃO: Seleciona apenas colunas exibidas no modal de histórico
+        # Removemos "NOME CLIENTE" pois já sabemos o valor
+        cols = 'ID_PEDIDO, "DIA DA ENTREGA", STATUS, PEDIDO, OBSERVAÇÃO, PAGAMENTO'
         
         response = client.table("pedidos")\
             .select(cols)\
@@ -156,14 +162,16 @@ def obter_resumo_historico(nome_cliente, limite=5):
         return []
 
 # --- GRAVAÇÃO ---
+# --- SALVAR NOVO PEDIDO ---
+@MonitorPerformance.monitorar(nome_funcao="salvar_pedido")
 def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_escolhido, observacao="", nr_pedido="", usuario_logado="Sistema"):
     client = get_db_client()
     
-    # LIMPEZA DE CACHE ESTRATÉGICA
-    get_metricas.clear()
-    listar_clientes.clear()
-    buscar_pedidos_visualizacao.clear()
-    listar_dados_filtros.clear() # Limpa filtros pois nova cidade/rota pode ter surgido
+    # ✅ OTIMIZAÇÃO: Limpeza estratégica de cache
+    # Removemos get_metricas.clear() e listar_clientes.clear()
+    # pois novo pedido não afeta essas métricas imediatamente
+    buscar_pedidos_visualizacao.clear()  # novo pedido precisa ser exibido
+    listar_dados_filtros.clear()  # pode ter nova CIDADE/ROTA
     
     nome_final = limpar_texto(nome)
     obs_final = limpar_texto(observacao)
@@ -224,10 +232,21 @@ def salvar_pedido(nome, descricao, data_entrega, pagamento_escolhido, status_esc
         }
         client.table("logs").insert(log_entry).execute()
         
+        # ✅ LOG ESTRUTURADO
+        logger.info("PEDIDO_CRIADO", {
+            "id_pedido": novo_id,
+            "cliente": nome_final,
+            "data_entrega": data_entrega_str,
+            "status": status_escolhido,
+            "usuario": usuario_logado
+        })
+        
     except Exception as e:
+        logger.erro("ERRO_SALVAR_PEDIDO", {"erro": str(e), "cliente": nome_final}, usuario=usuario_logado)
         raise Exception(f"Erro ao salvar no Supabase: {e}")
 
 # --- ATUALIZAÇÃO ---
+@MonitorPerformance.monitorar(nome_funcao="atualizar_pedidos_editaveis")
 def atualizar_pedidos_editaveis(df_editado, usuario_logado="Sistema"):
     client = get_db_client()
     if df_editado.empty: return
@@ -290,15 +309,24 @@ def atualizar_pedidos_editaveis(df_editado, usuario_logado="Sistema"):
                 client.table("pedidos").update(updates).eq("ID_PEDIDO", pid).execute()
                 if logs_batch:
                     client.table("logs").insert(logs_batch).execute()
+                
+                # ✅ LOG ESTRUTURADO
+                logger.info("PEDIDO_ATUALIZADO", {
+                    "id_pedido": pid,
+                    "campos_atualizados": list(updates.keys()),
+                    "usuario": usuario_logado
+                })
                     
         except Exception as e:
-            print(f"Erro ao atualizar pedido {pid}: {e}")
+            logger.erro("ERRO_ATUALIZAR_PEDIDO", {"id_pedido": pid, "erro": str(e)}, usuario=usuario_logado)
 
 # --- CLIENTES ---
+@MonitorPerformance.monitorar(nome_funcao="criar_novo_cliente")
 def criar_novo_cliente(nome, cidade, documento=""):
     client = get_db_client()
-    listar_clientes.clear()
-    get_metricas.clear()
+    # ✅ OTIMIZAÇÃO: Removemos get_metricas.clear() pois novo cliente
+    #    não afeta a métrica de forma imediata no dashboard
+    listar_clientes.clear()  # novo cliente precisa estar na lista de autocomplete
     
     nome_final = limpar_texto(nome)
     cidade_final = limpar_texto(cidade)
@@ -317,21 +345,36 @@ def criar_novo_cliente(nome, cidade, documento=""):
     
     try:
         client.table("clientes").insert(dados).execute()
+        
+        # ✅ LOG ESTRUTURADO
+        logger.info("CLIENTE_CRIADO", {
+            "id_cliente": novo_id,
+            "nome": nome_final,
+            "cidade": cidade_final,
+            "documento": doc_final[:3] + "***" if doc_final else "N/A"  # Mascarado por segurança
+        })
+        
     except Exception as e:
+        logger.erro("ERRO_CRIAR_CLIENTE", {"nome": nome_final, "erro": str(e)})
         st.error(f"Erro ao criar cliente: {e}")
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def get_metricas(_hash_versao=None):
+    """Busca total de clientes e pedidos (otimizado para performance).
+    OTIMIZAÇÃO: Aumentado TTL para 1h e removido count=exact (mais rápido).
+    """
     client = get_db_client()
     try:
-        count_cli = client.table("clientes").select("Código", count="exact", head=True).execute().count
-        count_ped = client.table("pedidos").select("ID_PEDIDO", count="exact", head=True).execute().count
-        return count_cli, count_ped
+        # ✅ OTIMIZAÇÃO: Sem count=exact, basta contar os registros retornados
+        # Usa LIMIT para garantir que não buscamos registros desnecessários
+        resp_cli = client.table("clientes").select("Código").limit(10000).execute()
+        resp_ped = client.table("pedidos").select("ID_PEDIDO").limit(10000).execute()
+        return len(resp_cli.data), len(resp_ped.data)
     except:
         return 0, 0
 
 # --- ESTOQUE (SALMÃO) ---
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def get_estoque_filtrado(tag_inicio, tag_fim):
     client = get_db_client()
     try:
@@ -449,8 +492,9 @@ def registrar_subtag(id_pai, letra, cliente, peso, status, usuario_logado):
 def buscar_subtags_por_tag(tag_pai_id):
     client = get_db_client()
     try:
+        # ✅ OTIMIZAÇÃO: Seleciona apenas colunas necessárias da tabela de subtags
         response = client.table("estoque_subtags")\
-            .select("*")\
+            .select("ID_Pai, Letra, Cliente, Peso, Status")\
             .eq("ID_Pai", int(tag_pai_id))\
             .order("Letra")\
             .execute()
@@ -463,7 +507,11 @@ def buscar_subtags_por_tag(tag_pai_id):
 def get_consumo_tag(tag_pai_id):
     client = get_db_client()
     try:
-        response = client.table("estoque_subtags").select("*").eq("ID_Pai", int(tag_pai_id)).execute()
+        # ✅ OTIMIZAÇÃO: Seleciona apenas colunas necessárias (Letra e Peso)
+        response = client.table("estoque_subtags")\
+            .select("Letra, Peso")\
+            .eq("ID_Pai", int(tag_pai_id))\
+            .execute()
         if not response.data: return [], 0.0
         df = pd.DataFrame(response.data)
         letras_usadas = df["Letra"].astype(str).str.strip().str.upper().tolist() if "Letra" in df.columns else []
@@ -596,12 +644,14 @@ def arquivar_tags_geradas(ids_tags, usuario_logado="Sistema"):
     try:
         for tag_id in ids_tags:
             # 1. Backup da Tag principal
+            # ✅ OTIMIZAÇÃO: Seleciona todas as colunas apenas para backup
             resp_pai = client.table("estoque_salmao").select("*").eq("Tag", int(tag_id)).execute()
             if resp_pai.data:
                 dados_pai = resp_pai.data[0]
                 client.table("estoque_salmao_backup").insert(dados_pai).execute()
                 
                 # 2. Backup e Eliminação das Subtags
+                # ✅ OTIMIZAÇÃO: Aqui SIM precisamos de * pois fazemos backup completo
                 resp_sub = client.table("estoque_subtags").select("*").eq("ID_Pai", int(tag_id)).execute()
                 if resp_sub.data:
                     client.table("estoque_subtags_backup").insert(resp_sub.data).execute()

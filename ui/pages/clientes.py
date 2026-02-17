@@ -4,6 +4,10 @@ import math
 import services.database as db
 import ui.components as components
 from ui.plotly_theme import aplicar_tema_plotly
+from services.validators import validar_entrada, ClienteInput
+from services.logging_module import LoggerStructurado
+
+logger = LoggerStructurado("clientes_page")
 
 
 def _is_mobile(breakpoint: int = 768) -> bool:
@@ -45,13 +49,28 @@ def render_page(hash_dados, perfil):
                 elif doc_limpo and len(doc_limpo) not in [11, 14]:
                     st.error(f"⚠️ Documento Inválido! Detectamos {len(doc_limpo)} dígitos.")
                 else:
-                    try:
-                        db.criar_novo_cliente(nn, cc, doc_limpo)
-                        st.success(f"✅ {nn} cadastrado com sucesso!")
-                        time.sleep(1)
-                        st.rerun()
-                    except Exception as e:
-                        components.render_error_details("Erro ao criar cliente.", e)
+                    # ✅ VALIDAÇÃO PYDANTIC
+                    dados_cliente = {
+                        "nome": nn,
+                        "cidade": cc,
+                        "documento": doc_limpo
+                    }
+                    
+                    sucesso, resultado = validar_entrada(ClienteInput, dados_cliente)
+                    
+                    if not sucesso:
+                        st.error(f"❌ Validação falhou: {resultado}")
+                        logger.aviso("CLIENTE_VALIDACAO_FALHOU", {"motivo": resultado, "nome": nn})
+                    else:
+                        try:
+                            db.criar_novo_cliente(nn, cc, doc_limpo)
+                            st.success(f"✅ {nn} cadastrado com sucesso!")
+                            logger.info("CLIENTE_CADASTRADO", {"nome": nn, "cidade": cc})
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e:
+                            logger.erro("ERRO_CADASTRAR_CLIENTE", {"nome": nn, "erro": str(e)})
+                            components.render_error_details("Erro ao criar cliente.", e)
 
     st.markdown("---")
     st.markdown("### 🔍 Clientes já Cadastrados")

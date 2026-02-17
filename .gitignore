@@ -1,7 +1,20 @@
+# Credenciais e segredos
 credentials.json
-__pycache__/
-*.pyc
-.streamlit
 .env
 .env.*
 !.env.example
+
+# Streamlit (secrets locais)
+.streamlit
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+.python-version
+
+# IDE (opcional)
+.idea/
+.vscode/

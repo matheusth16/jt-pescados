@@ -1,0 +1,8 @@
+2026-02-17 12:31:57 | ERROR    | JTpescados | erro:56 | [LOGIN_ERRO] {'erro': 'cannot unpack non-iterable NoneType object'} | Contexto: {"funcao": "LOGIN_ERRO", "usuario": "admin", "timestamp": "2026-02-17T12:31:57.980828"}
+2026-02-17 12:32:56 | WARNING  | JTpescados | seguranca:106 | [SEGURANÇA] LOGIN_SUCESSO | {"evento": "LOGIN_SUCESSO", "usuario": {"usuario": "op", "perfil": "Operador"}, "timestamp": "2026-02-17T12:32:56.807321"}
+2026-02-17 12:33:11 | WARNING  | JTpescados | seguranca:106 | [SEGURANÇA] LOGIN_SUCESSO | {"evento": "LOGIN_SUCESSO", "usuario": {"usuario": "admin", "perfil": "Admin"}, "timestamp": "2026-02-17T12:33:11.132629"}
+2026-02-17 12:33:48 | WARNING  | JTpescados | seguranca:106 | [SEGURANÇA] LOGIN_SUCESSO | {"evento": "LOGIN_SUCESSO", "usuario": {"usuario": "admin", "perfil": "Admin"}, "timestamp": "2026-02-17T12:33:48.325480"}
+2026-02-17 12:34:25 | WARNING  | JTpescados | seguranca:106 | [SEGURANÇA] LOGIN_SUCESSO | {"evento": "LOGIN_SUCESSO", "usuario": {"usuario": "op", "perfil": "Operador"}, "timestamp": "2026-02-17T12:34:25.987011"}
+2026-02-17 12:35:44 | WARNING  | JTpescados | seguranca:106 | [SEGURANÇA] LOGIN_SUCESSO | {"evento": "LOGIN_SUCESSO", "usuario": {"usuario": "admin", "perfil": "Admin"}, "timestamp": "2026-02-17T12:35:44.229536"}
+2026-02-17 12:37:52 | WARNING  | JTpescados | seguranca:106 | [SEGURANÇA] LOGIN_SUCESSO | {"evento": "LOGIN_SUCESSO", "usuario": {"usuario": "op", "perfil": "Operador"}, "timestamp": "2026-02-17T12:37:52.967918"}
+2026-02-17 12:41:12 | WARNING  | JTpescados | seguranca:106 | [SEGURANÇA] LOGIN_SUCESSO | {"evento": "LOGIN_SUCESSO", "usuario": {"usuario": "admin", "perfil": "Admin"}, "timestamp": "2026-02-17T12:41:12.278078"}

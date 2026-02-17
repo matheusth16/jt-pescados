@@ -8,9 +8,11 @@ from datetime import datetime
 from core.config import FUSO_BR
 from services.database.client import get_db_client
 from services.utils import limpar_texto
+from services.monitor_performance import MonitorPerformance
 
 
 @st.cache_data(ttl=30, show_spinner=False)
+@MonitorPerformance.monitorar(nome_funcao="get_estoque_filtrado")
 def get_estoque_filtrado(tag_inicio, tag_fim):
     client = get_db_client()
     try:

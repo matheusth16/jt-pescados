@@ -65,18 +65,35 @@ Sistema interno de gestão de pedidos, clientes e estoque de salmão da JT Pesca
 
 ```
 jt-pescados/
-├── app.py              # Entrada principal, login, roteamento
-├── migrate_senhas.py   # Migração de senhas para hash (uso único)
-├── resetar_senha.py    # Reset de senha de usuário
+├── app.py                 # Entrada principal, login, roteamento por perfil
+├── migrate_senhas.py      # Migração de senhas para hash Argon2 (uso único)
+├── resetar_senha.py       # Reset de senha de usuário
 ├── core/
-│   └── config.py       # Configurações e constantes
+│   └── config.py          # Configurações, constantes, paleta de cores
 ├── services/
-│   ├── database.py     # Acesso ao Supabase
-│   └── utils.py        # Utilitários
+│   ├── database/          # Pacote de acesso ao Supabase
+│   │   ├── __init__.py    # Reexporta funções (import services.database as db)
+│   │   ├── client.py      # Cliente Supabase, cache, helpers
+│   │   ├── auth.py        # Autenticação (Argon2)
+│   │   ├── clientes.py    # CRUD e listagem de clientes
+│   │   ├── pedidos.py     # CRUD, histórico e paginação de pedidos
+│   │   └── salmao.py      # Estoque de salmão, subtags, arquivamento
+│   ├── database.py       # (legado; em uso o pacote services/database/)
+│   └── utils.py          # Utilitários (limpar_texto, validade, hash de senha)
 ├── ui/
-│   ├── components.py   # Componentes reutilizáveis
-│   ├── styles.py       # Estilos e tema
-│   └── pages/          # Páginas do sistema
+│   ├── components.py      # Componentes reutilizáveis (login, cards, tabelas)
+│   ├── styles.py          # Estilos e tema (Admin / Operador)
+│   ├── plotly_theme.py    # Tema dos gráficos
+│   └── pages/             # Páginas do sistema
+│       ├── dashboard.py   # Indicadores (Dashboard / Indicadores)
+│       ├── pedidos.py     # Novo pedido
+│       ├── gerenciar.py   # Listagem e operações de pedidos
+│       ├── gerenciar_edicao.py  # Edição de pedido (Operador)
+│       ├── salmao.py      # Recebimento e gestão de salmão
+│       ├── salmao_modals.py
+│       ├── salmao_utils.py
+│       └── clientes.py    # Cadastro de clientes
+├── assets/                # Imagens (ex.: logo no menu)
 └── requirements.txt
 ```
 

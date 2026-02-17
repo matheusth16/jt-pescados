@@ -6,6 +6,10 @@ import services.database as db
 import ui.components as components
 import ui.styles as styles
 from core.config import LISTA_STATUS, LISTA_PAGAMENTO
+from services.validators import validar_entrada, PedidoInput
+from services.logging_module import LoggerStructurado
+
+logger = LoggerStructurado("pedidos_page")
 
 # --- FUNÇÃO DE CACHE LOCAL ---
 @st.cache_data(ttl=300, show_spinner=False)
@@ -95,6 +99,22 @@ def render_page(hash_dados, perfil, nome_user):
             
             with c_conf:
                 if st.button("✅ Confirmar e Salvar", type="primary", use_container_width=True):
+                    # ✅ VALIDAÇÃO PYDANTIC
+                    dados_pedido = {
+                        "nome_cliente": st.session_state.m_cli,
+                        "descricao": st.session_state.m_desc,
+                        "data_entrega": st.session_state.m_dt,
+                        "pagamento": st.session_state.m_pg,
+                        "status": st.session_state.m_stt
+                    }
+                    
+                    sucesso, resultado = validar_entrada(PedidoInput, dados_pedido)
+                    
+                    if not sucesso:
+                        st.error(f"❌ Validação falhou: {resultado}")
+                        logger.aviso("PEDIDO_VALIDACAO_FALHOU", {"motivo": resultado, "cliente": st.session_state.m_cli})
+                        return
+                    
                     with st.spinner("Gravando pedido..."):
                         try:
                             db.salvar_pedido(
@@ -120,6 +140,7 @@ def render_page(hash_dados, perfil, nome_user):
                             st.session_state.form_id += 1
                             st.rerun()
                         except Exception as e:
+                            logger.erro("ERRO_SALVAR_PEDIDO_UI", {"erro": str(e)}, usuario=nome_user)
                             st.error(f"Erro ao salvar: {e}")
 
             with c_edit:

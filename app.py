@@ -5,6 +5,9 @@ import time
 import services.database as db
 import ui.components as components
 import ui.styles as styles
+from services.auth import GerenciadorSenha
+from services.rate_limiter import registrar_tentativa, limpar_rate_limit_login
+from services.logging_module import LoggerStructurado
 
 # --- IMPORTS DAS PÁGINAS (Módulos isolados) ---
 import ui.pages.dashboard as page_dashboard
@@ -13,6 +16,9 @@ import ui.pages.gerenciar as page_gerenciar
 import ui.pages.gerenciar_edicao as page_gerenciar_edicao  # ✅ NOVO
 import ui.pages.salmao as page_salmao
 import ui.pages.clientes as page_clientes
+
+# --- INICIALIZAR LOGGER GLOBAL ---
+logger = LoggerStructurado("JTpescados")
 
 # --- CONFIGURAÇÕES GLOBAIS ---
 st.set_page_config(
@@ -72,17 +78,43 @@ def tela_login():
             st.markdown("<br>", unsafe_allow_html=True)
             if st.form_submit_button("ACESSAR SISTEMA", use_container_width=True):
                 try:
+                    if not user:
+                        st.error("❌ Usuário não informado.")
+                        return
+                    
+                    # ✅ Tenta autenticar
                     dados = db.autenticar_usuario(user, pw)
+                    
                     if dados:
+                        # ✅ Login bem-sucedido - limpar rate limit
+                        limpar_rate_limit_login(user)
                         st.session_state.logado = True
                         st.session_state.usuario_nome = dados["nome"]
                         st.session_state.usuario_perfil = dados["perfil"]
+                        logger.seguranca("LOGIN_SUCESSO", {"usuario": user, "perfil": dados["perfil"]})
                         st.rerun()
                     else:
-                        st.error("Usuário ou senha incorretos.")
+                        # ✅ Login falhou - registra tentativa e verifica rate limiting
+                        permitido, restantes, segundos_bloqueio = registrar_tentativa(user)
+                        
+                        if not permitido:
+                            msg_bloqueio = f"🔒 Acesso bloqueado! Tente novamente em {segundos_bloqueio} segundos."
+                            st.error(msg_bloqueio)
+                            logger.seguranca("LOGIN_BLOQUEADO", {
+                                "usuario": user, 
+                                "motivo": "excesso_tentativas",
+                                "segundos_restantes": segundos_bloqueio
+                            })
+                        else:
+                            msg_erro = f"❌ Usuário ou senha incorretos. {restantes} tentativa(s) restante(s) antes do bloqueio."
+                            st.error(msg_erro)
+                            logger.seguranca("LOGIN_FALHOU", {"usuario": user, "tentativas_restantes": restantes})
+                            
                 except ConnectionError as e:
+                    logger.erro("LOGIN_CONEXAO", {"erro": str(e)}, usuario=user)
                     components.render_error_details("Sem conexão com a internet.", e)
                 except Exception as e:
+                    logger.erro("LOGIN_ERRO", {"erro": str(e)}, usuario=user)
                     components.render_error_details("Erro técnico no login.", e)
 
 
@@ -133,7 +165,7 @@ else:
         # se mudou, salva e dá rerun (tende a recolher sidebar em mobile)
         if escolha_nav_sidebar != st.session_state.navegacao_principal:
             st.session_state.navegacao_principal = escolha_nav_sidebar
-            st.rerun()
+            st.rerun()  # ⚠️ Reexecuta TUDO
 
         st.markdown("---")
         # --- Resumo (métricas) no final do menu ---
