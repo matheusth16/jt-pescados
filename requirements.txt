@@ -9,6 +9,7 @@ xlsxwriter==3.2.0
 streamlit-javascript==0.1.5
 python-dotenv==1.0.1
 argon2-cffi==23.1.0
-pytz==2024.1pytest==9.0.2
+pytz==2024.1
+pytest==9.0.2
 pytest-cov==7.0.0
 pydantic==2.12.0
